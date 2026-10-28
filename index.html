@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="ChemLab 3D — an offline, gesture-controlled virtual chemistry laboratory using a webcam and MediaPipe hand tracking."
+    />
+    <title>ChemLab 3D — Gesture Chemistry Lab</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">⚗</div>
+          <div>
+            <h1>ChemLab 3D</h1>
+            <p class="subtitle">
+              Webcam hand tracking · pinch-to-grab · guided chemistry experiments
+            </p>
+          </div>
+        </div>
+        <div class="header-status">
+          <div
+            id="status-badge"
+            class="status-badge"
+            data-tone="loading"
+            role="status"
+            aria-live="polite"
+          >
+            Initializing…
+          </div>
+          <span id="camera-detail" class="muted">Starting camera…</span>
+        </div>
+      </header>
+
+      <div id="app-error" class="error-banner" role="alert" hidden>
+        <span id="app-error-message"></span>
+        <button id="retry-setup" type="button">Retry setup</button>
+      </div>
+
+      <main class="lab-layout">
+        <aside class="panel camera-panel" aria-label="Webcam and hand tracking">
+          <div class="panel-header">
+            <h2>Webcam</h2>
+            <span class="muted">1 hand · 21 landmarks</span>
+          </div>
+
+          <div id="video-shell" class="video-shell">
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="landmarks" aria-hidden="true"></canvas>
+            <div id="video-placeholder" class="video-placeholder">
+              Waiting for camera…
+            </div>
+            <div id="camera-error" class="camera-error" hidden>
+              <p id="camera-error-message"></p>
+              <button id="retry-camera" type="button">Retry camera</button>
+            </div>
+          </div>
+
+          <div class="camera-controls">
+            <label class="camera-picker">
+              <span>Camera</span>
+              <select id="camera-select" aria-label="Select webcam">
+                <option value="">Default / built-in</option>
+              </select>
+            </label>
+            <button id="retry-camera-2" type="button" class="small">
+              Restart
+            </button>
+          </div>
+
+          <p class="hint">
+            Hold one hand 40–80 cm from the camera, palm toward the lens. Pinch
+            thumb and index to grab, move, and release over a highlighted target.
+          </p>
+
+          <details class="tracking-details" open>
+            <summary>Live tracking</summary>
+            <dl class="tracking-grid">
+              <div>
+                <dt>Hand</dt>
+                <dd id="debug-tracking">Initializing…</dd>
+              </div>
+              <div>
+                <dt>Gesture</dt>
+                <dd id="debug-gesture">Idle</dd>
+              </div>
+              <div>
+                <dt>Held</dt>
+                <dd id="debug-selected">None</dd>
+              </div>
+              <div>
+                <dt>Grab XYZ</dt>
+                <dd id="debug-position">—</dd>
+              </div>
+              <div>
+                <dt>Aim XYZ</dt>
+                <dd id="debug-aim">—</dd>
+              </div>
+              <div>
+                <dt>Depth ΔZ</dt>
+                <dd id="debug-depth">—</dd>
+              </div>
+              <div>
+                <dt>Pinch</dt>
+                <dd id="debug-pinch">—</dd>
+              </div>
+              <div>
+                <dt>Cursor</dt>
+                <dd id="debug-cursor">Hidden</dd>
+              </div>
+              <div>
+                <dt>Last action</dt>
+                <dd id="debug-last-action">—</dd>
+              </div>
+            </dl>
+          </details>
+        </aside>
+
+        <section class="panel scene-panel" aria-label="3D laboratory">
+          <div class="panel-header">
+            <h2>Laboratory</h2>
+            <span id="scene-subtitle" class="muted">Interactive bench</span>
+          </div>
+
+          <div id="scene-container" class="scene-shell">
+            <p
+              id="interaction-status"
+              class="scene-status"
+              data-tone="idle"
+              role="status"
+              aria-live="polite"
+            >
+              No hand
+            </p>
+            <p id="target-status" class="target-status" hidden></p>
+            <p id="scene-instruction" class="scene-instruction">
+              Choose an experiment from the panel to begin.
+            </p>
+            <div id="completion-banner" class="completion-banner" hidden>
+              <strong id="completion-title">Experiment complete</strong>
+              <span id="completion-text"></span>
+            </div>
+          </div>
+
+          <div class="gesture-legend" aria-label="Gesture controls">
+            <span><b>Move</b> hand to aim</span>
+            <span><b>Pinch</b> to grab</span>
+            <span><b>Move</b> left/right · up/down · closer/farther for depth</span>
+            <span><b>Release</b> over the green target</span>
+          </div>
+        </section>
+
+        <aside class="panel experiment-panel" aria-label="Experiment guide">
+          <div class="panel-header">
+            <h2>Experiment</h2>
+            <span id="phase-pill" class="phase-pill" data-tone="idle">Select</span>
+          </div>
+
+          <div id="experiment-selection" class="experiment-selection">
+            <p class="selection-copy">
+              Choose one of two short, guided experiments. Each step is validated
+              against the actual instrument you release and where you release it.
+            </p>
+
+            <button
+              class="experiment-card"
+              type="button"
+              data-experiment="precipitation"
+            >
+              <span class="experiment-card-title">White precipitate</span>
+              <span class="experiment-card-eq">BaCl₂ + H₂SO₄ → BaSO₄↓ + 2HCl</span>
+              <span class="experiment-card-copy">
+                Two colourless solutions meet and a white solid appears.
+              </span>
+              <span class="experiment-card-action">Start experiment →</span>
+            </button>
+
+            <button
+              class="experiment-card"
+              type="button"
+              data-experiment="limestone"
+            >
+              <span class="experiment-card-title">Limestone fizz</span>
+              <span class="experiment-card-eq">CaCO₃ + 2HCl → CaCl₂ + CO₂↑ + H₂O</span>
+              <span class="experiment-card-copy">
+                Acid attacks limestone chips and releases carbon dioxide.
+              </span>
+              <span class="experiment-card-action">Start experiment →</span>
+            </button>
+          </div>
+
+          <div id="experiment-run" class="experiment-run" hidden>
+            <h3 id="experiment-title"></h3>
+            <p id="experiment-equation" class="equation"></p>
+            <p id="experiment-objective" class="objective"></p>
+
+            <div class="progress-track" aria-hidden="true">
+              <span id="experiment-progress" class="progress-fill"></span>
+            </div>
+            <p id="experiment-progress-label" class="muted"></p>
+
+            <ol id="experiment-steps" class="step-list"></ol>
+
+            <div
+              id="experiment-feedback"
+              class="feedback"
+              data-tone="info"
+              role="status"
+              aria-live="polite"
+            ></div>
+
+            <p id="experiment-safety" class="safety"></p>
+
+            <div class="experiment-actions">
+              <button id="restart-experiment" type="button">Restart</button>
+              <button id="choose-experiment" type="button" class="ghost">
+                Choose another
+              </button>
+            </div>
+          </div>
+        </aside>
+      </main>
+
+      <footer class="app-footer">
+        <span
+          >Local webcam only · no uploads · MediaPipe model and WASM are bundled
+          with the app.</span
+        >
+        <span>Depth is a relative hand-size signal, not a physical depth sensor.</span>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

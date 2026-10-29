@@ -11,7 +11,7 @@ import {
   type ObjectPosition,
   type ReleaseReason,
 } from "./interaction";
-import { ChemistryScene } from "./lab/scene";
+import { ChemistryScene, type SceneViewPreset } from "./lab/scene";
 import {
   ExperimentEngine,
   getExperiment,
@@ -29,46 +29,72 @@ let disposeApp: (() => void) | null = null;
 boot();
 
 function boot(): void {
-  const elements = {
-    statusBadge: requireElement<HTMLDivElement>("#status-badge"),
+  const elements: AppElements = {
+    statusBar: requireElement<HTMLDivElement>("#status-bar"),
     cameraDetail: requireElement<HTMLSpanElement>("#camera-detail"),
-    videoShell: requireElement<HTMLDivElement>("#video-shell"),
-    video: requireElement<HTMLVideoElement>("#webcam"),
-    landmarks: requireElement<HTMLCanvasElement>("#landmarks"),
-    videoPlaceholder: requireElement<HTMLDivElement>("#video-placeholder"),
-    cameraError: requireElement<HTMLDivElement>("#camera-error"),
-    cameraErrorMessage: requireElement<HTMLParagraphElement>(
-      "#camera-error-message",
+    trackingStatus: requireElement<HTMLElement>("#tracking-status"),
+    heldStatusWrap: requireElement<HTMLDivElement>("#held-status-wrap"),
+    heldStatus: requireElement<HTMLElement>("#held-status"),
+    telemetryPanel: requireElement<HTMLDivElement>(".telemetry-panel"),
+    telemetryCamera: requireElement<HTMLElement>("#telemetry-camera"),
+    telemetryCameraSub: requireElement<HTMLElement>("#telemetry-camera-sub"),
+    telemetryHand: requireElement<HTMLElement>("#telemetry-hand"),
+    telemetryHandSub: requireElement<HTMLElement>("#telemetry-hand-sub"),
+    telemetryDepth: requireElement<HTMLElement>("#telemetry-depth"),
+    telemetryDepthSub: requireElement<HTMLElement>("#telemetry-depth-sub"),
+    experimentName: requireElement<HTMLElement>("#experiment-name"),
+    topProgress: requireElement<HTMLDivElement>("#top-progress"),
+    progressStep: requireElement<HTMLElement>("#progress-step"),
+    progressTotal: requireElement<HTMLElement>("#progress-total"),
+    progressTrack: requireElement<HTMLDivElement>("#progress-track"),
+    restartExperiment: requireElement<HTMLButtonElement>("#restart-experiment"),
+    restartExperiment2: requireElement<HTMLButtonElement>(
+      "#restart-experiment-2",
     ),
-    retryCamera: requireElement<HTMLButtonElement>("#retry-camera"),
-    retryCamera2: requireElement<HTMLButtonElement>("#retry-camera-2"),
-    cameraSelect: requireElement<HTMLSelectElement>("#camera-select"),
-    retrySetup: requireElement<HTMLButtonElement>("#retry-setup"),
+    settingsToggle: requireElement<HTMLButtonElement>("#settings-toggle"),
+    settingsPopover: requireElement<HTMLDivElement>("#settings-popover"),
     appError: requireElement<HTMLDivElement>("#app-error"),
     appErrorMessage: requireElement<HTMLSpanElement>("#app-error-message"),
+    retrySetup: requireElement<HTMLButtonElement>("#retry-setup"),
     sceneContainer: requireElement<HTMLDivElement>("#scene-container"),
-    sceneSubtitle: requireElement<HTMLSpanElement>("#scene-subtitle"),
-    interactionStatus: requireElement<HTMLElement>("#interaction-status"),
-    targetStatus: requireElement<HTMLElement>("#target-status"),
+    experimentSelection: requireElement<HTMLDivElement>(
+      "#experiment-selection",
+    ),
+    experimentRun: requireElement<HTMLDivElement>("#experiment-run"),
+    stepIcon: requireElement<HTMLDivElement>("#step-icon"),
+    stepNumber: requireElement<HTMLElement>("#step-number"),
+    stepEyebrow: requireElement<HTMLElement>("#step-eyebrow"),
+    stepTitle: requireElement<HTMLElement>("#step-title"),
     sceneInstruction: requireElement<HTMLElement>("#scene-instruction"),
-    completionBanner: requireElement<HTMLDivElement>("#completion-banner"),
-    completionTitle: requireElement<HTMLElement>("#completion-title"),
-    completionText: requireElement<HTMLElement>("#completion-text"),
-    phasePill: requireElement<HTMLElement>("#phase-pill"),
-    selection: requireElement<HTMLDivElement>("#experiment-selection"),
-    runPanel: requireElement<HTMLDivElement>("#experiment-run"),
-    experimentTitle: requireElement<HTMLElement>("#experiment-title"),
-    experimentEquation: requireElement<HTMLElement>("#experiment-equation"),
-    experimentObjective: requireElement<HTMLElement>("#experiment-objective"),
+    targetStatus: requireElement<HTMLElement>("#target-status"),
+    hintSymbol: requireElement<HTMLElement>("#hint-symbol"),
+    actionEyebrow: requireElement<HTMLElement>("#action-eyebrow"),
+    actionText: requireElement<HTMLElement>("#action-text"),
     experimentProgress: requireElement<HTMLElement>("#experiment-progress"),
     experimentProgressLabel: requireElement<HTMLElement>(
       "#experiment-progress-label",
     ),
+    experimentProgressPercent: requireElement<HTMLElement>(
+      "#experiment-progress-percent",
+    ),
+    experimentEquation: requireElement<HTMLElement>("#experiment-equation"),
     experimentSteps: requireElement<HTMLOListElement>("#experiment-steps"),
     experimentFeedback: requireElement<HTMLElement>("#experiment-feedback"),
     experimentSafety: requireElement<HTMLElement>("#experiment-safety"),
-    restartExperiment: requireElement<HTMLButtonElement>("#restart-experiment"),
     chooseExperiment: requireElement<HTMLButtonElement>("#choose-experiment"),
+    completionBanner: requireElement<HTMLDivElement>("#completion-banner"),
+    completionTitle: requireElement<HTMLElement>("#completion-title"),
+    completionText: requireElement<HTMLElement>("#completion-text"),
+    videoShell: requireElement<HTMLDivElement>("#video-shell"),
+    video: requireElement<HTMLVideoElement>("#webcam"),
+    landmarks: requireElement<HTMLCanvasElement>("#landmarks"),
+    videoPlaceholder: requireElement<HTMLDivElement>("#video-placeholder"),
+    cameraError: requireElement<HTMLElement>("#camera-error"),
+    cameraErrorMessage: requireElement<HTMLElement>("#camera-error-message"),
+    retryCamera: requireElement<HTMLButtonElement>("#retry-camera"),
+    cameraSelect: requireElement<HTMLSelectElement>("#camera-select"),
+    previewToggle: requireElement<HTMLButtonElement>("#preview-toggle"),
+    cameraPreview: requireElement<HTMLDivElement>("#camera-preview"),
     debugTracking: requireElement<HTMLElement>("#debug-tracking"),
     debugGesture: requireElement<HTMLElement>("#debug-gesture"),
     debugSelected: requireElement<HTMLElement>("#debug-selected"),
@@ -78,14 +104,16 @@ function boot(): void {
     debugPinch: requireElement<HTMLElement>("#debug-pinch"),
     debugCursor: requireElement<HTMLElement>("#debug-cursor"),
     debugLastAction: requireElement<HTMLElement>("#debug-last-action"),
+    viewButtons: Array.from(
+      document.querySelectorAll<HTMLButtonElement>("[data-view]"),
+    ),
   };
 
   let sceneView: ChemistryScene;
   try {
     sceneView = new ChemistryScene(elements.sceneContainer);
   } catch (error) {
-    setStatus(elements.statusBadge, "3D scene unavailable", "error");
-    setText(elements.debugTracking, "WebGL error");
+    applyCameraStatus(elements, "3D scene unavailable", "error", "WebGL error");
     elements.retrySetup.hidden = true;
     showAppError(
       elements,
@@ -100,6 +128,26 @@ function boot(): void {
   let sessionToken = 0;
   let interaction: InteractionController;
   let lastAction = "—";
+  let lastInteraction: Readonly<InteractionSnapshot> | null = null;
+  let lastHand: TrackedHand | null = null;
+  let settingsOpen = false;
+  let previewEnabled = false;
+
+  const setSettingsOpen = (open: boolean): void => {
+    settingsOpen = open;
+    elements.settingsPopover.hidden = !open;
+    elements.settingsToggle.classList.toggle("selected", open);
+    elements.settingsToggle.setAttribute("aria-expanded", String(open));
+  };
+
+  const setPreviewEnabled = (enabled: boolean): void => {
+    previewEnabled = enabled;
+    elements.cameraPreview.hidden = !enabled;
+    elements.previewToggle.setAttribute("aria-pressed", String(enabled));
+    if (enabled) {
+      syncVideoAspect();
+    }
+  };
 
   const handleRelease = (
     object: SceneObject,
@@ -132,6 +180,13 @@ function boot(): void {
       lastAction = `rejected ${object.id ?? object.name}: ${result.reason}`;
       sceneView.rejectPlacement(object);
       renderExperimentUI(engine.getSnapshot(), elements);
+      renderGuidance(
+        engine.getSnapshot(),
+        lastInteraction,
+        lastHand,
+        elements,
+        sceneView,
+      );
       return;
     }
     if (!target) {
@@ -180,6 +235,13 @@ function boot(): void {
     }
     engine.finishStep();
     renderExperimentUI(engine.getSnapshot(), elements);
+    renderGuidance(
+      engine.getSnapshot(),
+      lastInteraction,
+      lastHand,
+      elements,
+      sceneView,
+    );
   };
 
   interaction = new InteractionController(sceneView, {
@@ -190,10 +252,6 @@ function boot(): void {
         y: grabbedAt.y,
         z: grabbedAt.z,
       })}`;
-      const state = engine.getSnapshot();
-      if (state.experimentId && state.phase === "running") {
-        setTargetStatus(elements, sceneView, true);
-      }
     },
     onRelease: handleRelease,
   });
@@ -205,6 +263,13 @@ function boot(): void {
     engine.start(id);
     sceneView.loadExperiment(getExperiment(id));
     renderExperimentUI(engine.getSnapshot(), elements);
+    renderGuidance(
+      engine.getSnapshot(),
+      lastInteraction,
+      lastHand,
+      elements,
+      sceneView,
+    );
   };
 
   const restartExperiment = (): void => {
@@ -218,6 +283,13 @@ function boot(): void {
     engine.restart();
     sceneView.loadExperiment(getExperiment(state.experimentId));
     renderExperimentUI(engine.getSnapshot(), elements);
+    renderGuidance(
+      engine.getSnapshot(),
+      lastInteraction,
+      lastHand,
+      elements,
+      sceneView,
+    );
   };
 
   const chooseExperiment = (): void => {
@@ -229,7 +301,7 @@ function boot(): void {
     renderExperimentUI(engine.getSnapshot(), elements);
   };
 
-  elements.selection.addEventListener("click", (event) => {
+  elements.experimentSelection.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) {
       return;
@@ -241,7 +313,57 @@ function boot(): void {
     }
   });
   elements.restartExperiment.addEventListener("click", restartExperiment);
+  elements.restartExperiment2.addEventListener("click", restartExperiment);
   elements.chooseExperiment.addEventListener("click", chooseExperiment);
+
+  elements.settingsToggle.addEventListener("click", () => {
+    setSettingsOpen(!settingsOpen);
+  });
+  elements.previewToggle.addEventListener("click", () => {
+    setPreviewEnabled(!previewEnabled);
+  });
+
+  for (const button of elements.viewButtons) {
+    button.addEventListener("click", () => {
+      const preset = button.dataset.view as SceneViewPreset | undefined;
+      if (!preset) {
+        return;
+      }
+      sceneView.setViewPreset(preset);
+      for (const item of elements.viewButtons) {
+        const active = item === button;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-pressed", String(active));
+      }
+    });
+  }
+
+  const handleDocumentPointerDown = (event: PointerEvent): void => {
+    if (!settingsOpen) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof Node)) {
+      return;
+    }
+    if (
+      elements.settingsPopover.contains(target) ||
+      elements.settingsToggle.contains(target)
+    ) {
+      return;
+    }
+    setSettingsOpen(false);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === "Escape" && settingsOpen) {
+      setSettingsOpen(false);
+      elements.settingsToggle.focus();
+    }
+  };
+
+  document.addEventListener("pointerdown", handleDocumentPointerDown);
+  document.addEventListener("keydown", handleKeyDown);
 
   let syntheticHand: TrackedHand | null = null;
 
@@ -254,6 +376,8 @@ function boot(): void {
         startExperiment: (id: ExperimentId) => void;
         restartExperiment: () => void;
         chooseExperiment: () => void;
+        setViewPreset: (preset: SceneViewPreset) => void;
+        viewPreset: () => SceneViewPreset;
         snapshot: () => ExperimentSnapshot;
         instruments: () => ReturnType<ChemistryScene["getInstrumentInfo"]>;
         instrumentPosition: (
@@ -273,6 +397,8 @@ function boot(): void {
       startExperiment,
       restartExperiment,
       chooseExperiment,
+      setViewPreset: (preset) => sceneView.setViewPreset(preset),
+      viewPreset: () => sceneView.getViewPreset(),
       snapshot: () => engine.getSnapshot(),
       instruments: () => sceneView.getInstrumentInfo(),
       instrumentPosition: (id) => sceneView.getInstrumentPosition(id),
@@ -336,6 +462,7 @@ function boot(): void {
     const height = tracker.videoHeight;
     if (width > 0 && height > 0) {
       elements.videoShell.style.aspectRatio = `${width} / ${height}`;
+      setText(elements.telemetryCameraSub, `${width}×${height}`);
     }
   };
 
@@ -369,15 +496,18 @@ function boot(): void {
     initializing = true;
     elements.retrySetup.disabled = true;
     elements.retryCamera.disabled = true;
-    elements.retryCamera2.disabled = true;
     elements.cameraSelect.disabled = true;
     hideAppError(elements);
     hideCameraError(elements);
 
     try {
       if (!tracker.hasCamera) {
-        setStatus(elements.statusBadge, "Starting camera…", "loading");
-        setText(elements.cameraDetail, "Requesting camera permission…");
+        applyCameraStatus(
+          elements,
+          "Requesting camera access…",
+          "loading",
+          "Waiting for permission",
+        );
         setText(elements.debugTracking, "Starting camera…");
         elements.videoPlaceholder.hidden = false;
         await tracker.startCamera();
@@ -386,13 +516,18 @@ function boot(): void {
         lastVideoTime = -1;
         lastVideoFrameAt = performance.now();
         elements.videoPlaceholder.hidden = true;
-        setText(elements.cameraDetail, "Camera ready");
         await refreshCameraList();
+      } else {
+        cameraReady = true;
       }
 
       if (!modelReady) {
-        setStatus(elements.statusBadge, "Loading hand model…", "loading");
-        setText(elements.cameraDetail, "Camera ready · loading model…");
+        applyCameraStatus(
+          elements,
+          "Loading hand model…",
+          "loading",
+          "Local MediaPipe model",
+        );
         setText(elements.debugTracking, "Loading hand model…");
         await tracker.loadModel();
         modelReady = true;
@@ -401,9 +536,13 @@ function boot(): void {
       if (cameraReady && modelReady) {
         trackingStopped = false;
         lastVideoFrameAt = performance.now();
-        setStatus(elements.statusBadge, "No hand detected", "warn");
-        setText(elements.cameraDetail, "Camera ready · model ready");
-        setText(elements.debugTracking, "No hand detected");
+        applyCameraStatus(
+          elements,
+          "Camera ready",
+          "ok",
+          `${tracker.videoWidth}×${tracker.videoHeight}`,
+        );
+        setTrackingState(elements, null);
         elements.cameraSelect.disabled = false;
       }
     } catch (error) {
@@ -411,21 +550,31 @@ function boot(): void {
         cameraReady = false;
         elements.videoPlaceholder.hidden = true;
         showCameraError(elements, error.message);
-        setStatus(elements.statusBadge, "Camera unavailable", "error");
-        setText(elements.cameraDetail, "Camera unavailable");
+        applyCameraStatus(
+          elements,
+          "Camera unavailable",
+          "error",
+          "Permission or device issue",
+        );
+        setText(elements.trackingStatus, "Tracking offline");
         setText(elements.debugTracking, "Camera error");
+        setSettingsOpen(true);
       } else {
         modelReady = false;
-        setStatus(elements.statusBadge, "Model error", "error");
-        setText(elements.cameraDetail, "Camera ready · model failed");
+        applyCameraStatus(
+          elements,
+          "Hand model failed",
+          "error",
+          "Model could not load",
+        );
         setText(elements.debugTracking, "Model error");
         showAppError(elements, errorMessage(error));
+        setSettingsOpen(true);
       }
     } finally {
       initializing = false;
       elements.retrySetup.disabled = false;
       elements.retryCamera.disabled = false;
-      elements.retryCamera2.disabled = false;
     }
   };
 
@@ -434,8 +583,12 @@ function boot(): void {
       return;
     }
     const deviceId = elements.cameraSelect.value || undefined;
-    setStatus(elements.statusBadge, "Switching camera…", "loading");
-    setText(elements.cameraDetail, "Switching camera…");
+    applyCameraStatus(
+      elements,
+      "Switching camera…",
+      "loading",
+      "Opening device",
+    );
     elements.cameraSelect.disabled = true;
     interaction.reset();
     hideCameraError(elements);
@@ -447,8 +600,13 @@ function boot(): void {
       lastVideoFrameAt = performance.now();
       syncVideoAspect();
       elements.videoPlaceholder.hidden = true;
-      setStatus(elements.statusBadge, "No hand detected", "warn");
-      setText(elements.cameraDetail, "Camera ready · model ready");
+      applyCameraStatus(
+        elements,
+        "Camera ready",
+        "ok",
+        `${tracker.videoWidth}×${tracker.videoHeight}`,
+      );
+      setTrackingState(elements, null);
       await refreshCameraList();
     } catch (error) {
       cameraReady = false;
@@ -457,9 +615,15 @@ function boot(): void {
           ? error.message
           : `The selected camera could not be opened: ${errorMessage(error)}`;
       showCameraError(elements, message);
-      setStatus(elements.statusBadge, "Camera unavailable", "error");
-      setText(elements.cameraDetail, "Camera unavailable");
+      applyCameraStatus(
+        elements,
+        "Camera unavailable",
+        "error",
+        "Permission or device issue",
+      );
+      setText(elements.trackingStatus, "Tracking offline");
       setText(elements.debugTracking, "Camera error");
+      setSettingsOpen(true);
     } finally {
       elements.cameraSelect.disabled = cameraReady && modelReady;
     }
@@ -469,16 +633,9 @@ function boot(): void {
     hand: TrackedHand | null,
     snapshot: Readonly<InteractionSnapshot>,
   ): void => {
-    if (hand) {
-      setStatus(elements.statusBadge, "Hand detected", "ok");
-      setText(
-        elements.debugTracking,
-        hand.handedness ? `Detected (${hand.handedness})` : "Detected",
-      );
-    } else {
-      setStatus(elements.statusBadge, "No hand detected", "warn");
-      setText(elements.debugTracking, "No hand detected");
-    }
+    lastHand = hand;
+    lastInteraction = snapshot;
+    setTrackingState(elements, hand);
 
     setText(elements.debugGesture, snapshot.gesture);
     setText(elements.debugSelected, snapshot.selectedName ?? "None");
@@ -496,7 +653,7 @@ function boot(): void {
       elements.debugDepth,
       snapshot.palmRatio === null
         ? "—"
-        : `${snapshot.depthOffset >= 0 ? "+" : ""}${snapshot.depthOffset.toFixed(2)} · span ${snapshot.palmRatio.toFixed(2)}×`,
+        : `${snapshot.depthOffset >= 0 ? "+" : ""}${snapshot.depthOffset.toFixed(2)} · ${snapshot.palmRatio.toFixed(2)}×`,
     );
     setText(
       elements.debugPinch,
@@ -510,13 +667,38 @@ function boot(): void {
     );
     setText(elements.debugLastAction, lastAction);
 
-    const state = engine.getSnapshot();
-    if (state.phase === "animating") {
-      setInteractionStatus(elements, "Pouring…", "held");
+    if (snapshot.selectedName) {
+      elements.heldStatusWrap.hidden = false;
+      setText(elements.heldStatus, `Holding ${snapshot.selectedName}`);
     } else {
-      setInteractionStatus(elements, snapshot.status, snapshot.tone);
+      elements.heldStatusWrap.hidden = true;
     }
-    setTargetStatus(elements, sceneView, Boolean(snapshot.selectedName));
+
+    if (snapshot.objectPosition) {
+      setText(
+        elements.telemetryDepth,
+        `${snapshot.depthOffset >= 0 ? "+" : ""}${snapshot.depthOffset.toFixed(2)}`,
+      );
+      elements.telemetryDepth.dataset.tone = "ok";
+      setText(
+        elements.telemetryDepthSub,
+        snapshot.palmRatio === null
+          ? "Depth active"
+          : `Palm ${snapshot.palmRatio.toFixed(2)}×`,
+      );
+    } else {
+      setText(elements.telemetryDepth, "—");
+      delete elements.telemetryDepth.dataset.tone;
+      setText(elements.telemetryDepthSub, "Grab to enable");
+    }
+
+    renderGuidance(
+      engine.getSnapshot(),
+      snapshot,
+      hand,
+      elements,
+      sceneView,
+    );
   };
 
   const loop = (now: number): void => {
@@ -547,12 +729,19 @@ function boot(): void {
       } catch (error) {
         trackingStopped = true;
         interaction.reset();
-        setStatus(elements.statusBadge, "Tracking error", "error");
+        applyCameraStatus(
+          elements,
+          "Tracking error",
+          "error",
+          "Restart the camera",
+        );
+        setText(elements.trackingStatus, "Tracking stopped");
         setText(elements.debugTracking, "Tracking error");
         showAppError(
           elements,
           `Hand tracking stopped: ${errorMessage(error)}. Retry setup to restart tracking.`,
         );
+        setSettingsOpen(true);
       }
     }
 
@@ -563,15 +752,13 @@ function boot(): void {
   elements.retryCamera.addEventListener("click", () => {
     void initialize();
   });
-  elements.retryCamera2.addEventListener("click", () => {
-    void initialize();
-  });
   elements.retrySetup.addEventListener("click", () => {
     void initialize();
   });
   elements.cameraSelect.addEventListener("change", () => {
     void switchCamera();
   });
+  elements.video.addEventListener("loadedmetadata", syncVideoAspect);
 
   const dispose = (): void => {
     if (disposed) {
@@ -580,6 +767,8 @@ function boot(): void {
     disposed = true;
     cancelAnimationFrame(rafId);
     window.removeEventListener("pagehide", handlePageHide);
+    document.removeEventListener("pointerdown", handleDocumentPointerDown);
+    document.removeEventListener("keydown", handleKeyDown);
     elements.video.removeEventListener("loadedmetadata", syncVideoAspect);
     interaction.reset();
     tracker.dispose();
@@ -598,7 +787,13 @@ function boot(): void {
   disposeApp = dispose;
 
   renderExperimentUI(engine.getSnapshot(), elements);
-  setStatus(elements.statusBadge, "Initializing…", "loading");
+  applyCameraStatus(
+    elements,
+    "Starting camera…",
+    "loading",
+    "Requesting access",
+  );
+  setTrackingState(elements, null);
   rafId = requestAnimationFrame(loop);
   void initialize();
 }
@@ -612,76 +807,210 @@ function renderExperimentUI(
   elements: AppElements,
 ): void {
   if (!snapshot.experimentId) {
-    elements.selection.hidden = false;
-    elements.runPanel.hidden = true;
-    setText(elements.sceneSubtitle, "Interactive bench");
-    setText(
-      elements.sceneInstruction,
-      "Choose an experiment from the right-hand panel to begin.",
-    );
-    setPhase(elements.phasePill, "Select", "idle");
+    elements.experimentSelection.hidden = false;
+    elements.experimentRun.hidden = true;
+    elements.topProgress.hidden = true;
+    elements.restartExperiment.disabled = true;
+    elements.restartExperiment2.disabled = true;
     elements.completionBanner.hidden = true;
+    setText(elements.experimentName, "Choose an experiment");
     return;
   }
 
   const definition = getExperiment(snapshot.experimentId);
-  elements.selection.hidden = true;
-  elements.runPanel.hidden = false;
-  setText(elements.sceneSubtitle, definition.title);
-  setText(elements.experimentTitle, definition.title);
+  elements.experimentSelection.hidden = true;
+  elements.experimentRun.hidden = false;
+  elements.topProgress.hidden = false;
+  elements.restartExperiment.disabled = false;
+  elements.restartExperiment2.disabled = false;
+  setText(elements.experimentName, definition.title);
   setText(elements.experimentEquation, definition.equation);
-  setText(elements.experimentObjective, definition.objective);
   setText(elements.experimentSafety, `Safety: ${definition.safety}`);
-
-  const progress = Math.round(snapshot.progress * 100);
-  elements.experimentProgress.style.width = `${progress}%`;
-  setText(
-    elements.experimentProgressLabel,
-    snapshot.completed
-      ? "All validated steps complete"
-      : `${Math.min(snapshot.stepIndex, snapshot.totalSteps)} of ${snapshot.totalSteps} validated steps`,
-  );
-
   setText(elements.experimentFeedback, snapshot.feedback.text);
   elements.experimentFeedback.dataset.tone = snapshot.feedback.tone;
 
+  renderTopProgress(snapshot, elements);
+  renderSteps(elements.experimentSteps, definition, snapshot);
+  renderProgress(snapshot, elements);
+  renderGuidance(
+    snapshot,
+    null,
+    null,
+    elements,
+    null,
+  );
+
   if (snapshot.completed) {
-    setPhase(elements.phasePill, "Complete", "complete");
     elements.completionBanner.hidden = false;
     setText(elements.completionTitle, definition.resultTitle);
     setText(elements.completionText, definition.resultText);
-    setText(
-      elements.sceneInstruction,
-      "Experiment complete. Restart it or choose another experiment.",
-    );
   } else {
     elements.completionBanner.hidden = true;
-    if (snapshot.phase === "animating") {
-      setPhase(elements.phasePill, "Pouring…", "busy");
-      setText(
-        elements.sceneInstruction,
-        "Keep the hand visible — the validated pour is playing.",
+  }
+}
+
+function renderGuidance(
+  snapshot: ExperimentSnapshot,
+  interaction: Readonly<InteractionSnapshot> | null,
+  hand: TrackedHand | null,
+  elements: AppElements,
+  sceneView: ChemistryScene | null,
+): void {
+  if (!snapshot.experimentId) {
+    return;
+  }
+  const definition = getExperiment(snapshot.experimentId);
+  const total = snapshot.totalSteps;
+  const completed = snapshot.completed;
+  const currentStep = completed
+    ? total
+    : Math.min(
+        snapshot.stepIndex + (snapshot.phase === "animating" ? 0 : 1),
+        total,
       );
-    } else if (snapshot.phase === "running") {
-      setPhase(
-        elements.phasePill,
-        `Step ${snapshot.stepIndex + 1}/${snapshot.totalSteps}`,
-        "active",
-      );
-      setText(
-        elements.sceneInstruction,
-        snapshot.step?.prompt ?? "Carry the next reagent to the target.",
-      );
-    } else {
-      setPhase(elements.phasePill, "Ready", "idle");
-      setText(
-        elements.sceneInstruction,
-        snapshot.step?.prompt ?? "Choose a reagent and release it over the target.",
-      );
-    }
+
+  setText(elements.stepNumber, String(currentStep));
+  elements.stepIcon.classList.toggle("success", completed);
+
+  const heldName = interaction?.selectedName ?? null;
+  const hoveredName = interaction?.hoveredName ?? null;
+  const targetUnder =
+    heldName && sceneView ? sceneView.targetUnderHeld() : null;
+
+  if (completed) {
+    setText(elements.stepEyebrow, "ALL STEPS VERIFIED");
+    setText(elements.stepTitle, definition.resultTitle);
+    setText(elements.sceneInstruction, definition.resultText);
+    setHintMode(elements, "complete");
+    setText(elements.actionEyebrow, "ENDPOINT REACHED");
+    setText(elements.actionText, "Restart or choose another experiment");
+    elements.targetStatus.hidden = true;
+    return;
   }
 
-  renderSteps(elements.experimentSteps, definition, snapshot);
+  if (snapshot.phase === "animating") {
+    setText(elements.stepEyebrow, `STEP ${currentStep} OF ${total}`);
+    setText(elements.stepTitle, "Observe the reaction");
+    setText(
+      elements.sceneInstruction,
+      "Validated. Keep your hand visible while the pour and reaction play.",
+    );
+    setHintMode(elements, "working");
+    setText(elements.actionEyebrow, "REACTION IN PROGRESS");
+    setText(elements.actionText, "Stabilising the vessel…");
+    elements.targetStatus.hidden = true;
+    return;
+  }
+
+  setText(elements.stepEyebrow, `STEP ${currentStep} OF ${total}`);
+
+  if (!hand) {
+    setText(elements.stepTitle, "Show your hand");
+    setText(
+      elements.sceneInstruction,
+      snapshot.step?.prompt ?? "Hold one hand up to the camera to begin.",
+    );
+    setHintMode(elements, "hand");
+    setText(elements.actionEyebrow, "START");
+    setText(elements.actionText, "Hold one hand 40–80 cm from the camera");
+  } else if (heldName) {
+    if (targetUnder) {
+      setText(elements.stepTitle, "Release to pour");
+      setText(
+        elements.sceneInstruction,
+        `Release ${heldName} over ${snapshot.step?.targetName ?? "the highlighted vessel"} now.`,
+      );
+      setText(elements.actionEyebrow, "RELEASE");
+      setText(elements.actionText, "Open your pinch over the green target");
+    } else {
+      setText(elements.stepTitle, "Carry to the target");
+      setText(
+        elements.sceneInstruction,
+        `Move ${heldName} over ${snapshot.step?.targetName ?? "the highlighted vessel"}. Depth is the third axis.`,
+      );
+      setText(elements.actionEyebrow, "CARRY");
+      setText(
+        elements.actionText,
+        `Move toward ${snapshot.step?.targetName ?? "the target"}`,
+      );
+    }
+    setHintMode(elements, "hand");
+  } else if (hoveredName) {
+    setText(elements.stepTitle, "Pinch to grab");
+    setText(
+      elements.sceneInstruction,
+      snapshot.step?.prompt ?? "Pinch thumb and index together to pick it up.",
+    );
+    setHintMode(elements, "hand");
+    setText(elements.actionEyebrow, "GRAB");
+    setText(elements.actionText, `Pinch to lift ${hoveredName}`);
+  } else {
+    setText(elements.stepTitle, "Aim at a reagent");
+    setText(
+      elements.sceneInstruction,
+      snapshot.step?.prompt ?? "Move your hand to aim at the highlighted reagent.",
+    );
+    setHintMode(elements, "hand");
+    setText(elements.actionEyebrow, "AIM");
+    setText(
+      elements.actionText,
+      `Aim at ${snapshot.step?.reagentName ?? "the highlighted instrument"}`,
+    );
+  }
+
+  if (heldName) {
+    elements.targetStatus.hidden = false;
+    if (targetUnder) {
+      setText(
+        elements.targetStatus,
+        "Release now — the vessel is highlighted green.",
+      );
+      elements.targetStatus.dataset.tone = "ready";
+    } else {
+      setText(
+        elements.targetStatus,
+        "Carry the instrument over the highlighted vessel.",
+      );
+      elements.targetStatus.dataset.tone = "moving";
+    }
+  } else {
+    elements.targetStatus.hidden = true;
+  }
+}
+
+function renderTopProgress(
+  snapshot: ExperimentSnapshot,
+  elements: AppElements,
+): void {
+  elements.progressTrack.replaceChildren();
+  for (let index = 0; index < snapshot.totalSteps; index += 1) {
+    const segment = document.createElement("i");
+    if (index < snapshot.stepIndex) {
+      segment.className = "active";
+    } else if (index === snapshot.stepIndex && !snapshot.completed) {
+      segment.className = "current";
+    }
+    elements.progressTrack.appendChild(segment);
+  }
+  setText(elements.progressStep, String(snapshot.stepIndex));
+  setText(elements.progressTotal, String(snapshot.totalSteps));
+}
+
+function renderProgress(
+  snapshot: ExperimentSnapshot,
+  elements: AppElements,
+): void {
+  const percent = Math.round(snapshot.progress * 100);
+  elements.experimentProgress.style.width = `${percent}%`;
+  setText(elements.experimentProgressPercent, `${percent}%`);
+  if (snapshot.completed) {
+    setText(elements.experimentProgressLabel, "All steps verified");
+  } else {
+    setText(
+      elements.experimentProgressLabel,
+      `${snapshot.stepIndex} of ${snapshot.totalSteps} validated steps`,
+    );
+  }
 }
 
 function renderSteps(
@@ -692,8 +1021,7 @@ function renderSteps(
   list.replaceChildren();
   definition.steps.forEach((step, index) => {
     const item = document.createElement("li");
-    const done =
-      snapshot.completed || index < snapshot.stepIndex;
+    const done = snapshot.completed || index < snapshot.stepIndex;
     const current =
       !snapshot.completed &&
       (index === snapshot.stepIndex ||
@@ -715,30 +1043,10 @@ function renderSteps(
   });
 }
 
-function setTargetStatus(
-  elements: AppElements,
-  sceneView: ChemistryScene,
-  hasHeldObject: boolean,
-): void {
-  if (!hasHeldObject) {
-    elements.targetStatus.hidden = true;
-    return;
+function setHintMode(elements: AppElements, mode: string): void {
+  if (elements.hintSymbol.dataset.mode !== mode) {
+    elements.hintSymbol.dataset.mode = mode;
   }
-  const target = sceneView.targetUnderHeld();
-  if (target) {
-    setText(
-      elements.targetStatus,
-      "Release now — the vessel is highlighted green.",
-    );
-    elements.targetStatus.dataset.tone = "ready";
-  } else {
-    setText(
-      elements.targetStatus,
-      "Carry the instrument over the highlighted vessel.",
-    );
-    elements.targetStatus.dataset.tone = "moving";
-  }
-  elements.targetStatus.hidden = false;
 }
 
 // -------------------------------------------------------------------------
@@ -746,41 +1054,63 @@ function setTargetStatus(
 // -------------------------------------------------------------------------
 
 type AppElements = {
-  statusBadge: HTMLDivElement;
+  statusBar: HTMLDivElement;
   cameraDetail: HTMLSpanElement;
+  trackingStatus: HTMLElement;
+  heldStatusWrap: HTMLDivElement;
+  heldStatus: HTMLElement;
+  telemetryPanel: HTMLDivElement;
+  telemetryCamera: HTMLElement;
+  telemetryCameraSub: HTMLElement;
+  telemetryHand: HTMLElement;
+  telemetryHandSub: HTMLElement;
+  telemetryDepth: HTMLElement;
+  telemetryDepthSub: HTMLElement;
+  experimentName: HTMLElement;
+  topProgress: HTMLDivElement;
+  progressStep: HTMLElement;
+  progressTotal: HTMLElement;
+  progressTrack: HTMLDivElement;
+  restartExperiment: HTMLButtonElement;
+  restartExperiment2: HTMLButtonElement;
+  settingsToggle: HTMLButtonElement;
+  settingsPopover: HTMLDivElement;
+  appError: HTMLDivElement;
+  appErrorMessage: HTMLSpanElement;
+  retrySetup: HTMLButtonElement;
+  sceneContainer: HTMLDivElement;
+  experimentSelection: HTMLDivElement;
+  experimentRun: HTMLDivElement;
+  stepIcon: HTMLDivElement;
+  stepNumber: HTMLElement;
+  stepEyebrow: HTMLElement;
+  stepTitle: HTMLElement;
+  sceneInstruction: HTMLElement;
+  targetStatus: HTMLElement;
+  hintSymbol: HTMLElement;
+  actionEyebrow: HTMLElement;
+  actionText: HTMLElement;
+  experimentProgress: HTMLElement;
+  experimentProgressLabel: HTMLElement;
+  experimentProgressPercent: HTMLElement;
+  experimentEquation: HTMLElement;
+  experimentSteps: HTMLOListElement;
+  experimentFeedback: HTMLElement;
+  experimentSafety: HTMLElement;
+  chooseExperiment: HTMLButtonElement;
+  completionBanner: HTMLDivElement;
+  completionTitle: HTMLElement;
+  completionText: HTMLElement;
   videoShell: HTMLDivElement;
   video: HTMLVideoElement;
   landmarks: HTMLCanvasElement;
   videoPlaceholder: HTMLDivElement;
-  cameraError: HTMLDivElement;
-  cameraErrorMessage: HTMLParagraphElement;
+  cameraError: HTMLElement;
+  cameraErrorMessage: HTMLElement;
   retryCamera: HTMLButtonElement;
-  retryCamera2: HTMLButtonElement;
   cameraSelect: HTMLSelectElement;
-  retrySetup: HTMLButtonElement;
-  appError: HTMLDivElement;
-  appErrorMessage: HTMLSpanElement;
-  sceneContainer: HTMLDivElement;
-  sceneSubtitle: HTMLSpanElement;
-  interactionStatus: HTMLElement;
-  targetStatus: HTMLElement;
-  sceneInstruction: HTMLElement;
-  completionBanner: HTMLDivElement;
-  completionTitle: HTMLElement;
-  completionText: HTMLElement;
-  phasePill: HTMLElement;
-  selection: HTMLDivElement;
-  runPanel: HTMLDivElement;
-  experimentTitle: HTMLElement;
-  experimentEquation: HTMLElement;
-  experimentObjective: HTMLElement;
-  experimentProgress: HTMLElement;
-  experimentProgressLabel: HTMLElement;
-  experimentSteps: HTMLOListElement;
-  experimentFeedback: HTMLElement;
-  experimentSafety: HTMLElement;
-  restartExperiment: HTMLButtonElement;
-  chooseExperiment: HTMLButtonElement;
+  previewToggle: HTMLButtonElement;
+  cameraPreview: HTMLDivElement;
   debugTracking: HTMLElement;
   debugGesture: HTMLElement;
   debugSelected: HTMLElement;
@@ -790,6 +1120,7 @@ type AppElements = {
   debugPinch: HTMLElement;
   debugCursor: HTMLElement;
   debugLastAction: HTMLElement;
+  viewButtons: HTMLButtonElement[];
 };
 
 function requireElement<T extends Element>(selector: string): T {
@@ -800,38 +1131,67 @@ function requireElement<T extends Element>(selector: string): T {
   return element;
 }
 
-function setStatus(
-  badge: HTMLElement,
-  text: string,
+function setCameraStatusValue(tone: StatusTone): string {
+  switch (tone) {
+    case "ok":
+      return "Ready";
+    case "loading":
+      return "Starting";
+    case "warn":
+      return "Ready";
+    case "error":
+      return "Offline";
+  }
+}
+
+function applyCameraStatus(
+  elements: AppElements,
+  label: string,
   tone: StatusTone,
+  sub: string,
 ): void {
-  setText(badge, text);
-  if (badge.dataset.tone !== tone) {
-    badge.dataset.tone = tone;
+  setText(elements.cameraDetail, label);
+  elements.statusBar.dataset.tone = tone;
+  elements.telemetryPanel.dataset.tone = tone;
+  setText(elements.telemetryCamera, setCameraStatusValue(tone));
+  elements.telemetryCamera.dataset.tone = tone;
+  setText(elements.telemetryCameraSub, sub);
+}
+
+function setTrackingState(
+  elements: AppElements,
+  hand: TrackedHand | null,
+): void {
+  if (hand) {
+    setText(
+      elements.trackingStatus,
+      hand.handedness
+        ? `Hand detected · ${hand.handedness}`
+        : "Hand detected",
+    );
+    if (elements.statusBar.dataset.tone !== "error") {
+      elements.statusBar.dataset.tone = "ok";
+    }
+    setText(elements.debugTracking, "Detected");
+    setText(elements.telemetryHand, "Detected");
+    elements.telemetryHand.dataset.tone = "ok";
+    setText(elements.telemetryHandSub, hand.handedness ?? "1 hand tracked");
+  } else {
+    setText(elements.trackingStatus, "Searching for hand…");
+    setText(elements.debugTracking, "No hand detected");
+    setText(elements.telemetryHand, "Searching");
+    elements.telemetryHand.dataset.tone = "warn";
+    setText(elements.telemetryHandSub, "Show one hand");
+    const tone = elements.statusBar.dataset.tone;
+    if (tone !== "error" && tone !== "loading") {
+      elements.statusBar.dataset.tone = "warn";
+    }
   }
 }
 
 function setText(element: HTMLElement, text: string): void {
   if (element.textContent !== text) {
     element.textContent = text;
-  }
-}
-
-function setInteractionStatus(
-  elements: AppElements,
-  text: string,
-  tone: string,
-): void {
-  setText(elements.interactionStatus, text);
-  if (elements.interactionStatus.dataset.tone !== tone) {
-    elements.interactionStatus.dataset.tone = tone;
-  }
-}
-
-function setPhase(element: HTMLElement, text: string, tone: string): void {
-  setText(element, text);
-  if (element.dataset.tone !== tone) {
-    element.dataset.tone = tone;
   }
 }
 

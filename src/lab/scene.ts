@@ -32,6 +32,25 @@ const TARGET_READY = 0x7fe7ff;
 const TARGET_NEAR = 0x6fe3a5;
 const TARGET_REJECT = 0xff7b7b;
 
+export type SceneViewPreset =
+  | "perspective"
+  | "top"
+  | "side"
+  | "closeup";
+
+interface CameraPose {
+  readonly position: readonly [number, number, number];
+  readonly target: readonly [number, number, number];
+}
+
+/** Real camera poses for the view buttons in the top bar. */
+const VIEW_POSES: Readonly<Record<SceneViewPreset, CameraPose>> = {
+  perspective: { position: [0, 4.6, 8.8], target: [0, 1.0, -0.2] },
+  top: { position: [0, 10.5, 0.01], target: [0, 0, 0] },
+  side: { position: [8.4, 3.3, 0.01], target: [0, 1.05, 0] },
+  closeup: { position: [0, 2.9, 5.5], target: [0, 1.05, 0] },
+};
+
 export interface SceneInstrumentInfo {
   readonly id: string;
   readonly name: string;
@@ -110,6 +129,17 @@ export class ChemistryScene implements InteractionScene {
   private cursorTone: "idle" | "hover" | "held" = "idle";
   private time = 0;
   private rejectFlashUntil = 0;
+  private viewPreset: SceneViewPreset = "perspective";
+  private readonly cameraTarget = new THREE.Vector3(0, 1.0, -0.2);
+  private readonly cameraTween = {
+    active: false,
+    elapsed: 0,
+    duration: 0.55,
+    fromPosition: new THREE.Vector3(),
+    toPosition: new THREE.Vector3(),
+    fromTarget: new THREE.Vector3(),
+    toTarget: new THREE.Vector3(),
+  };
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -131,7 +161,7 @@ export class ChemistryScene implements InteractionScene {
 
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 80);
     this.camera.position.set(0, 4.6, 8.8);
-    this.camera.lookAt(0, 1.0, -0.2);
+    this.camera.lookAt(this.cameraTarget);
 
     this.buildRoom();
     this.addLights();
@@ -312,6 +342,28 @@ export class ChemistryScene implements InteractionScene {
     this.disposalRoots.push(sign);
   }
 
+  /**
+   * Move the real camera to a preset viewpoint. The tween keeps object picking
+   * correct because the raycast uses the live camera each frame.
+   */
+  setViewPreset(preset: SceneViewPreset): void {
+    if (preset === this.viewPreset) {
+      return;
+    }
+    const pose = VIEW_POSES[preset];
+    this.viewPreset = preset;
+    this.cameraTween.fromPosition.copy(this.camera.position);
+    this.cameraTween.toPosition.set(...pose.position);
+    this.cameraTween.fromTarget.copy(this.cameraTarget);
+    this.cameraTween.toTarget.set(...pose.target);
+    this.cameraTween.elapsed = 0;
+    this.cameraTween.active = true;
+  }
+
+  getViewPreset(): SceneViewPreset {
+    return this.viewPreset;
+  }
+
   getInstrumentInfo(): SceneInstrumentInfo[] {
     return this.instruments.map((record) => ({
       id: record.id,
@@ -479,6 +531,7 @@ export class ChemistryScene implements InteractionScene {
 
   update(dt: number): void {
     this.time += dt;
+    this.updateCamera(dt);
     this.updateRestTweens(dt);
     this.updatePours(dt);
     this.updateReactions(dt);
@@ -715,6 +768,28 @@ export class ChemistryScene implements InteractionScene {
       } else if (nearTargetId === null) {
         record.vessel.setTargetHighlight(TARGET_READY, pulse);
       }
+    }
+  }
+
+  private updateCamera(dt: number): void {
+    const tween = this.cameraTween;
+    if (!tween.active) {
+      return;
+    }
+    tween.elapsed += dt;
+    const t = Math.min(1, tween.elapsed / tween.duration);
+    const eased =
+      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    this.camera.position.lerpVectors(
+      tween.fromPosition,
+      tween.toPosition,
+      eased,
+    );
+    this.cameraTarget.lerpVectors(tween.fromTarget, tween.toTarget, eased);
+    this.camera.lookAt(this.cameraTarget);
+    this.camera.updateMatrixWorld();
+    if (t >= 1) {
+      tween.active = false;
     }
   }
 

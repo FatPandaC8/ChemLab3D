@@ -29,9 +29,9 @@ available. Those areas are listed as gaps, not as passes.
 ### Build output
 
 ```text
-dist/index.html                   8.22 kB │ gzip:   2.29 kB
-dist/assets/index-*.css          11.12 kB │ gzip:   3.27 kB
-dist/assets/index-*.js          872.20 kB │ gzip: 223.92 kB
+dist/index.html                  16.32 kB │ gzip:   3.64 kB
+dist/assets/index-*.css          19.56 kB │ gzip:   4.93 kB
+dist/assets/index-*.js          879.61 kB │ gzip: 226.21 kB
 dist/models/hand_landmarker.task  ~7.5 MB
 dist/mediapipe/wasm/             ~26 MB
 ```
@@ -89,26 +89,32 @@ camera supplies a synthetic image, not a hand.
 
 | Scenario | Expected | Result |
 | --- | --- | --- |
-| Cold load | Progress from `Starting camera…` to `Camera ready · model ready` and `No hand detected` | **Pass** |
+| Cold load | Progress from `Starting camera…` to `Camera ready`; telemetry shows `Ready` / `Searching`; hand model loads from local assets | **Pass** |
 | Local assets | Model and WASM load from the app origin; no external requests | **Pass** |
-| Selection screen | Test tube, beaker, and Na₂CO₃ bottle render; both experiment cards visible | **Pass** |
-| Start precipitation | Beaker, BaCl₂, and H₂SO₄ instruments load; step 1 and 0% progress shown | **Pass** |
-| Start limestone | Flask, limestone jar, and HCl load; step 1 shown | **Pass** |
+| Selection screen | Test tube, beaker, and Na₂CO₃ bottle render; both experiment cards visible; top progress and restart disabled | **Pass** |
+| Start precipitation | Beaker, BaCl₂, and H₂SO₄ instruments load; step 1, 0% progress, and `0 of 2` shown | **Pass** |
+| Start limestone | Flask, limestone jar, and HCl load; step 1 and the limestone equation shown | **Pass** |
+| 3D view presets | Perspective, Top Down, Side, and Vessel Focus move the camera and set the active/`aria-pressed` button | **Pass** |
 | Precipitation step 1 | Pour animation; beaker gains liquid; progress 50%; step 2 becomes current | **Pass** |
 | Precipitation step 2 | Reaction plays only after the final validated step; liquid becomes cloudy; white particles settle | **Pass** |
-| Precipitation completion | `Complete` pill, 100% progress, both steps checked, BaSO₄ result banner | **Pass** |
+| Precipitation completion | Success step icon, `2 / 2`, 100%, `All steps verified`, both rows checked, BaSO₄ result banner | **Pass** |
 | Limestone step 1 | Limestone chips appear in the flask; progress 50% | **Pass** |
 | Limestone step 2 | Chips dissolve and CO₂ bubbles rise; liquid appears | **Pass** |
-| Limestone completion | `Complete` pill, 100% progress, CO₂ result banner | **Pass** |
+| Limestone completion | Success step icon, `2 / 2`, 100%, CO₂ result banner | **Pass** |
+| Invalid release | Step index stays 0, error feedback shown, bottle returns to its bench position | **Pass** |
 | Transfer after completion | Rejected with `not-interactive:complete`; no state change | **Pass** |
-| Restart | Scene rebuilds empty; phase returns to step 1; progress 0% | **Pass** |
-| Choose another | Scene returns to selection; selection panel visible | **Pass** |
+| Restart | Scene rebuilds empty; phase returns to step 1; progress 0%; banner hidden | **Pass** |
+| Choose another | Scene returns to selection; guide switches back; top progress hidden; restart disabled | **Pass** |
+| Camera preview | Hidden until toggled; real 640×480 fake-camera stream rendered; hides again | **Pass** |
+| Live guide/telemetry | Hover, `Holding`, `Release to pour`, depth ΔZ and palm ratio, and target-ready tone all match the interaction snapshot | **Pass** |
 | Camera permission denied | `Camera unavailable`; permission explanation; retry visible | **Pass** |
 | No camera found | `Camera unavailable`; “No camera was found”; retry visible | **Pass** |
 | Model file 404 | Model error banner with the failing URL and retry control | **Pass** |
-| Retry after model failure | Second model request succeeds; status reaches `No hand detected` | **Pass** |
+| Retry after model failure | Second model request succeeds; status reaches `Camera ready` | **Pass** |
 | Retry after camera denial | Retry opens the camera and loads the model | **Pass** |
-| Completion banner placement | Banner sits above the scene instruction and does not cover the reaction vessel | **Pass** |
+| Layout 1920×1080 / 1366×768 | Guide, telemetry, status, gesture strip, top bar, and banner have no overflow or overlap | **Pass** |
+| Completion banner placement | Banner sits above the vessels at the top centre and does not cover the reaction | **Pass** |
+| Production preview | No `__chemlabDev`, no external requests, only local assets, no page errors | **Pass** |
 
 ### End-to-end experiment observations
 
@@ -188,28 +194,60 @@ The diagnostic HUD reported `Aim XYZ`, `Depth ΔZ` (offset and palm-span ratio),
 pinch value, cursor visibility, and the last grab/reject/release action during
 these runs.
 
+### UI shell and live-state verification
+
+The Figma-derived shell was added as vanilla HTML/CSS/TypeScript, not as a
+React runtime. Verification focused on the requirement that every visible value
+comes from the real runtime, not a placeholder.
+
+| Check | Observed |
+| --- | --- |
+| Initial state | `Camera ready`, telemetry `Ready` / `Searching`, camera sub-label `640×480`, `Choose an experiment`, restart disabled |
+| Hover | Guide title `Pinch to grab`, action `Pinch to lift BaCl₂ (aq)`; held status hidden |
+| Grab | Held status `Holding BaCl₂ (aq)`, telemetry depth `+0.00` with `Palm 1.00×`, target panel `Carry the instrument over the highlighted vessel.` |
+| Over target | Guide title `Release to pour`, target panel `Release now — the vessel is highlighted green.`, target tone `ready`, action `Open your pinch over the green target` |
+| Release outside target | Feedback tone `error`, text `Release BaCl₂ solution over the beaker.`, step index unchanged at 0 |
+| Completion | Top bar `2 / 2`, 100%, `All steps verified`, success icon, `ALL STEPS VERIFIED`, both rows `done`, banner visible |
+| Restart | step index 0, `0%`, banner hidden, success icon removed |
+| Choose another | Selection visible, run hidden, top progress hidden, restart disabled |
+| Camera preview | `hidden` until toggled; then `640×480`, `readyState 4`, aspect ratio `640 / 480`, `aria-pressed="true"` |
+| View presets | `top`, `side`, and `perspective` returned from the real scene; active button and `aria-pressed` matched |
+| Layout | No overflow in guide, telemetry, status bar, gesture strip, top bar, settings, or banner at 1366×768 and 1920×1080 |
+
+The invalid-release check released the bottle far from the vessel while the
+scene was still running. It showed error feedback and never advanced the step;
+the bottle then tweened back to `(-2.05, 1.04, 0.10)` within the animation
+window. On very slow software WebGL the scene clock advances in capped steps, so
+the settle took longer in wall-clock time than on real hardware; the final
+position was still the home position.
+
 ## Desktop and packaging checks
 
 ### Development Electron launch
 
 - Window loaded `http://127.0.0.1:<ephemeral>/`.
-- Camera and model initialized (`No hand detected`, `Camera ready · model
-  ready`).
-- Both experiment cards rendered; starting **Limestone fizz** loaded the flask,
-  jar, and HCl instruments.
+- Camera and model initialized (`Camera ready`, telemetry `Ready` /
+  `Searching`).
+- The new top bar, scene viewport, and experiment guide rendered; starting
+  **Limestone fizz** loaded the flask, jar, and HCl instruments with step 1 at
+  0 / 2.
+- The settings popover opened and the camera preview showed a real 640×480
+  fake-camera stream.
 - Model, WASM, CSS, and JavaScript came from the loopback origin.
 - No external requests and no page errors.
-- The dev hook is present only in development.
+- The dev hook was absent in the packaged build.
 
 ### Packaged Linux build
 
-`npx electron-builder --linux --dir` completed and produced
+`npx electron-builder --linux --dir` was re-run after the UI rewrite and produced
 `release/linux-unpacked`.
 
 | Check | Result |
 | --- | --- |
 | App starts from packaged `app.asar` | **Pass** |
-| Camera/model initialize | **Pass** |
+| Camera/model initialize (`Camera ready`) | **Pass** |
+| New top bar, guide, and 3D viewport render | **Pass** |
+| Starting an experiment loads its instruments and step 1 | **Pass** |
 | Local server serves assets from inside asar | **Pass** |
 | Model and WASM requested from loopback origin | **Pass** |
 | No external requests | **Pass** |
@@ -257,6 +295,13 @@ npm run typecheck
 npm test
 npm run build
 npm run dev
+```
+
+Production preview:
+
+```bash
+npm run build
+npx vite preview --host 127.0.0.1 --port 4173
 ```
 
 For the desktop shell:

@@ -10,28 +10,118 @@
     <title>ChemLab 3D — Gesture Chemistry Lab</title>
   </head>
   <body>
-    <div id="app">
-      <header class="app-header">
+    <div id="app" class="app-shell">
+      <header class="topbar">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">⚗</div>
-          <div>
-            <h1>ChemLab 3D</h1>
-            <p class="subtitle">
-              Webcam hand tracking · pinch-to-grab · guided chemistry experiments
-            </p>
+          <div class="brand-mark" aria-hidden="true">
+            <span></span><i></i><b></b>
+          </div>
+          <div class="brand-copy">
+            <span class="brand-name">Virtual Chemistry Lab</span>
+            <span id="experiment-name" class="experiment-name"
+              >Choose an experiment</span
+            >
           </div>
         </div>
-        <div class="header-status">
-          <div
-            id="status-badge"
-            class="status-badge"
-            data-tone="loading"
-            role="status"
-            aria-live="polite"
+
+        <div class="view-presets" aria-label="3D view angles">
+          <span class="view-label">3D View</span>
+          <button
+            class="view-pill active"
+            type="button"
+            data-view="perspective"
+            aria-pressed="true"
           >
-            Initializing…
+            Perspective
+          </button>
+          <button
+            class="view-pill"
+            type="button"
+            data-view="top"
+            aria-pressed="false"
+          >
+            Top Down
+          </button>
+          <button
+            class="view-pill"
+            type="button"
+            data-view="side"
+            aria-pressed="false"
+          >
+            Side
+          </button>
+          <button
+            class="view-pill"
+            type="button"
+            data-view="closeup"
+            aria-pressed="false"
+          >
+            Vessel Focus
+          </button>
+        </div>
+
+        <div id="top-progress" class="top-progress" aria-live="polite" hidden>
+          <div class="progress-copy">
+            <span>Experiment progress</span>
+            <strong
+              ><span id="progress-step">0</span>
+              <i>/ <span id="progress-total">2</span></i></strong
+            >
           </div>
-          <span id="camera-detail" class="muted">Starting camera…</span>
+          <div id="progress-track" class="progress-track" aria-hidden="true"></div>
+        </div>
+
+        <div class="top-actions">
+          <button
+            id="restart-experiment"
+            class="restart-button"
+            type="button"
+            disabled
+          >
+            <svg
+              aria-hidden="true"
+              class="icon"
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+            >
+              <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5" />
+              <path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" />
+            </svg>
+            <span>Restart</span>
+          </button>
+          <button
+            id="settings-toggle"
+            class="icon-button"
+            type="button"
+            aria-label="Open tracking settings"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="settings-popover"
+          >
+            <svg
+              aria-hidden="true"
+              class="icon"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"
+              />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -40,44 +130,286 @@
         <button id="retry-setup" type="button">Retry setup</button>
       </div>
 
-      <main class="lab-layout">
-        <aside class="panel camera-panel" aria-label="Webcam and hand tracking">
-          <div class="panel-header">
-            <h2>Webcam</h2>
-            <span class="muted">1 hand · 21 landmarks</span>
-          </div>
+      <main
+        class="workspace"
+        aria-label="Interactive 3D laboratory workspace"
+      >
+        <div id="scene-container" class="scene-container"></div>
 
-          <div id="video-shell" class="video-shell">
-            <video id="webcam" autoplay playsinline muted></video>
-            <canvas id="landmarks" aria-hidden="true"></canvas>
-            <div id="video-placeholder" class="video-placeholder">
-              Waiting for camera…
-            </div>
-            <div id="camera-error" class="camera-error" hidden>
-              <p id="camera-error-message"></p>
-              <button id="retry-camera" type="button">Retry camera</button>
-            </div>
-          </div>
+        <aside class="instruction-panel" aria-label="Experiment guide">
+          <div id="experiment-selection" class="experiment-selection">
+            <span class="panel-eyebrow">Choose an experiment</span>
+            <h2 class="panel-title">Guided chemistry</h2>
+            <p class="instruction-copy">
+              Each step is validated against the instrument you release and
+              the vessel you release it over.
+            </p>
 
-          <div class="camera-controls">
-            <label class="camera-picker">
-              <span>Camera</span>
-              <select id="camera-select" aria-label="Select webcam">
-                <option value="">Default / built-in</option>
-              </select>
-            </label>
-            <button id="retry-camera-2" type="button" class="small">
-              Restart
+            <button
+              class="experiment-card"
+              type="button"
+              data-experiment="precipitation"
+            >
+              <span class="experiment-card-title">White precipitate</span>
+              <span class="experiment-card-eq"
+                >BaCl₂ + H₂SO₄ → BaSO₄↓ + 2HCl</span
+              >
+              <span class="experiment-card-copy">
+                Two colourless solutions meet and a white solid appears.
+              </span>
+              <span class="experiment-card-action">Start experiment →</span>
+            </button>
+
+            <button
+              class="experiment-card"
+              type="button"
+              data-experiment="limestone"
+            >
+              <span class="experiment-card-title">Limestone fizz</span>
+              <span class="experiment-card-eq"
+                >CaCO₃ + 2HCl → CaCl₂ + CO₂↑ + H₂O</span
+              >
+              <span class="experiment-card-copy">
+                Acid attacks limestone chips and releases carbon dioxide.
+              </span>
+              <span class="experiment-card-action">Start experiment →</span>
             </button>
           </div>
 
-          <p class="hint">
-            Hold one hand 40–80 cm from the camera, palm toward the lens. Pinch
-            thumb and index to grab, move, and release over a highlighted target.
-          </p>
+          <div id="experiment-run" class="experiment-run" hidden>
+            <div class="step-heading">
+              <div id="step-icon" class="step-icon">
+                <span id="step-number">1</span>
+                <svg
+                  aria-hidden="true"
+                  class="step-check"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.2"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div class="step-copy">
+                <span id="step-eyebrow">STEP 1 OF 2</span>
+                <strong id="step-title">Pinch to grab a reagent</strong>
+              </div>
+            </div>
 
-          <details class="tracking-details" open>
-            <summary>Live tracking</summary>
+            <p id="scene-instruction" class="instruction-copy">
+              Pick up the first reagent and release it over the target vessel.
+            </p>
+
+            <p id="target-status" class="target-status" hidden></p>
+
+            <div id="action-hint" class="action-hint">
+              <span id="hint-symbol" class="hint-symbol" data-mode="hand">
+                <svg
+                  aria-hidden="true"
+                  class="hint-hand"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.8"
+                >
+                  <path
+                    d="M8 11V7a1.5 1.5 0 0 1 3 0v3-5a1.5 1.5 0 0 1 3 0v5-3a1.5 1.5 0 0 1 3 0v4-2a1.5 1.5 0 0 1 3 0v4c0 4-2.7 7-7 7h-1.2c-2.3 0-3.8-1-5-2.8L4 13.5a1.5 1.5 0 0 1 2.3-1.9L8 13"
+                  />
+                </svg>
+                <svg
+                  aria-hidden="true"
+                  class="hint-check"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2.2"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <i class="spinner"></i>
+              </span>
+              <div>
+                <small id="action-eyebrow">NEXT ACTION</small>
+                <strong id="action-text">Show one hand to the camera</strong>
+              </div>
+            </div>
+
+            <div class="mini-progress" aria-hidden="true">
+              <i id="experiment-progress"></i>
+            </div>
+            <div class="progress-label">
+              <span id="experiment-progress-label">0 of 2 validated steps</span>
+              <strong id="experiment-progress-percent">0%</strong>
+            </div>
+
+            <p id="experiment-equation" class="equation"></p>
+            <ol id="experiment-steps" class="step-list"></ol>
+
+            <div
+              id="experiment-feedback"
+              class="feedback"
+              data-tone="info"
+              role="status"
+              aria-live="polite"
+            ></div>
+
+            <p id="experiment-safety" class="safety"></p>
+
+            <div class="experiment-actions">
+              <button id="restart-experiment-2" type="button">Restart</button>
+              <button
+                id="choose-experiment"
+                type="button"
+                class="ghost"
+              >
+                Choose another
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <div
+          class="telemetry-panel"
+          aria-label="Live camera and hand tracking telemetry"
+        >
+          <div class="telemetry-header">
+            <span class="telemetry-dot"></span>
+            <span>LIVE TRACKING</span>
+          </div>
+          <div class="telemetry-grid">
+            <div class="telemetry-card">
+              <span class="card-label">Camera</span>
+              <strong id="telemetry-camera" class="card-value">Starting</strong>
+              <small id="telemetry-camera-sub" class="card-sub"
+                >Requesting access</small
+              >
+            </div>
+            <div class="telemetry-card">
+              <span class="card-label">Hand</span>
+              <strong id="telemetry-hand" class="card-value">Searching</strong>
+              <small id="telemetry-hand-sub" class="card-sub"
+                >Show one hand</small
+              >
+            </div>
+            <div class="telemetry-card">
+              <span class="card-label">Depth ΔZ</span>
+              <strong id="telemetry-depth" class="card-value">—</strong>
+              <small id="telemetry-depth-sub" class="card-sub"
+                >Grab to enable</small
+              >
+            </div>
+          </div>
+        </div>
+
+        <div id="status-bar" class="status-bar" aria-live="polite">
+          <div class="status-item">
+            <i id="camera-dot" class="status-dot"></i>
+            <span id="camera-detail">Starting camera…</span>
+          </div>
+          <div class="status-divider"></div>
+          <div class="status-item">
+            <svg
+              aria-hidden="true"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+            >
+              <path
+                d="M8 11V7a1.5 1.5 0 0 1 3 0v3-5a1.5 1.5 0 0 1 3 0v5-3a1.5 1.5 0 0 1 3 0v4-2a1.5 1.5 0 0 1 3 0v4c0 4-2.7 7-7 7h-1.2c-2.3 0-3.8-1-5-2.8L4 13.5a1.5 1.5 0 0 1 2.3-1.9L8 13"
+              />
+            </svg>
+            <span id="tracking-status">Searching for hand…</span>
+          </div>
+          <div id="held-status-wrap" class="status-item held" hidden>
+            <i class="held-dot"></i>
+            <span id="held-status">Object held</span>
+          </div>
+        </div>
+
+        <div class="gesture-strip" aria-hidden="true">
+          <span class="gesture-icon"><i></i><b></b></span>
+          <span><strong>Pinch</strong> to grab</span>
+          <i></i>
+          <span><strong>Move (X, Y, Z)</strong> to position</span>
+          <i></i>
+          <span><strong>Release</strong> over the green target</span>
+        </div>
+
+        <div id="completion-banner" class="completion-banner" hidden>
+          <strong id="completion-title">Experiment complete</strong>
+          <span id="completion-text"></span>
+        </div>
+
+        <div
+          id="settings-popover"
+          class="settings-popover"
+          role="dialog"
+          aria-label="Tracking and hardware settings"
+          aria-modal="false"
+          hidden
+        >
+          <div class="settings-title">
+            <span>Webcam &amp; input</span>
+            <small>Tracking runs in the background</small>
+          </div>
+
+          <button
+            id="preview-toggle"
+            class="setting-row"
+            type="button"
+            aria-pressed="false"
+          >
+            <span>
+              <strong>Camera preview</strong>
+              <small>Diagnostic window — off by default</small>
+            </span>
+            <i class="toggle"><b></b></i>
+          </button>
+
+          <div class="setting-field">
+            <label for="camera-select">Camera device</label>
+            <select id="camera-select" aria-label="Select webcam">
+              <option value="">Default / built-in</option>
+            </select>
+          </div>
+
+          <div class="setting-actions">
+            <button id="retry-camera" type="button">Restart camera</button>
+            <span id="camera-error" class="camera-error" hidden>
+              <span id="camera-error-message"></span>
+            </span>
+          </div>
+
+          <div id="camera-preview" class="camera-preview" hidden>
+            <div id="video-shell" class="video-shell">
+              <video id="webcam" autoplay playsinline muted></video>
+              <canvas id="landmarks" aria-hidden="true"></canvas>
+              <div id="video-placeholder" class="video-placeholder">
+                Waiting for camera…
+              </div>
+            </div>
+          </div>
+
+          <details class="tracking-details">
+            <summary>Live tracking diagnostics</summary>
             <dl class="tracking-grid">
               <div>
                 <dt>Hand</dt>
@@ -117,120 +449,13 @@
               </div>
             </dl>
           </details>
-        </aside>
 
-        <section class="panel scene-panel" aria-label="3D laboratory">
-          <div class="panel-header">
-            <h2>Laboratory</h2>
-            <span id="scene-subtitle" class="muted">Interactive bench</span>
-          </div>
-
-          <div id="scene-container" class="scene-shell">
-            <p
-              id="interaction-status"
-              class="scene-status"
-              data-tone="idle"
-              role="status"
-              aria-live="polite"
-            >
-              No hand
-            </p>
-            <p id="target-status" class="target-status" hidden></p>
-            <p id="scene-instruction" class="scene-instruction">
-              Choose an experiment from the panel to begin.
-            </p>
-            <div id="completion-banner" class="completion-banner" hidden>
-              <strong id="completion-title">Experiment complete</strong>
-              <span id="completion-text"></span>
-            </div>
-          </div>
-
-          <div class="gesture-legend" aria-label="Gesture controls">
-            <span><b>Move</b> hand to aim</span>
-            <span><b>Pinch</b> to grab</span>
-            <span><b>Move</b> left/right · up/down · closer/farther for depth</span>
-            <span><b>Release</b> over the green target</span>
-          </div>
-        </section>
-
-        <aside class="panel experiment-panel" aria-label="Experiment guide">
-          <div class="panel-header">
-            <h2>Experiment</h2>
-            <span id="phase-pill" class="phase-pill" data-tone="idle">Select</span>
-          </div>
-
-          <div id="experiment-selection" class="experiment-selection">
-            <p class="selection-copy">
-              Choose one of two short, guided experiments. Each step is validated
-              against the actual instrument you release and where you release it.
-            </p>
-
-            <button
-              class="experiment-card"
-              type="button"
-              data-experiment="precipitation"
-            >
-              <span class="experiment-card-title">White precipitate</span>
-              <span class="experiment-card-eq">BaCl₂ + H₂SO₄ → BaSO₄↓ + 2HCl</span>
-              <span class="experiment-card-copy">
-                Two colourless solutions meet and a white solid appears.
-              </span>
-              <span class="experiment-card-action">Start experiment →</span>
-            </button>
-
-            <button
-              class="experiment-card"
-              type="button"
-              data-experiment="limestone"
-            >
-              <span class="experiment-card-title">Limestone fizz</span>
-              <span class="experiment-card-eq">CaCO₃ + 2HCl → CaCl₂ + CO₂↑ + H₂O</span>
-              <span class="experiment-card-copy">
-                Acid attacks limestone chips and releases carbon dioxide.
-              </span>
-              <span class="experiment-card-action">Start experiment →</span>
-            </button>
-          </div>
-
-          <div id="experiment-run" class="experiment-run" hidden>
-            <h3 id="experiment-title"></h3>
-            <p id="experiment-equation" class="equation"></p>
-            <p id="experiment-objective" class="objective"></p>
-
-            <div class="progress-track" aria-hidden="true">
-              <span id="experiment-progress" class="progress-fill"></span>
-            </div>
-            <p id="experiment-progress-label" class="muted"></p>
-
-            <ol id="experiment-steps" class="step-list"></ol>
-
-            <div
-              id="experiment-feedback"
-              class="feedback"
-              data-tone="info"
-              role="status"
-              aria-live="polite"
-            ></div>
-
-            <p id="experiment-safety" class="safety"></p>
-
-            <div class="experiment-actions">
-              <button id="restart-experiment" type="button">Restart</button>
-              <button id="choose-experiment" type="button" class="ghost">
-                Choose another
-              </button>
-            </div>
-          </div>
-        </aside>
+          <p class="settings-note">
+            Depth is a relative palm-size signal, not a physical depth sensor.
+            Hold one hand 40–80 cm from the camera.
+          </p>
+        </div>
       </main>
-
-      <footer class="app-footer">
-        <span
-          >Local webcam only · no uploads · MediaPipe model and WASM are bundled
-          with the app.</span
-        >
-        <span>Depth is a relative hand-size signal, not a physical depth sensor.</span>
-      </footer>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

@@ -8,6 +8,13 @@ application in which one hand controls a 3D cursor, pinches reagent bottles,
 carries them in three dimensions, and releases them over a target vessel to
 perform one of two deterministic chemistry experiments.
 
+The application shell was rebuilt from the supplied Figma frontend: a light lab
+workspace with a top bar, a dominant 3D viewport, a compact experiment guide,
+live tracking telemetry, and a settings popover. The design was ported into
+`index.html` and `src/style.css` and wired to the existing vanilla TypeScript app
+rather than adopting the mock's React/Tailwind runtime, its fake scene, or its
+gesture simulator.
+
 The hand pipeline remains the original MediaPipe HandLandmarker + One Euro
 filter + pinch hysteresis implementation. Chemistry rules are isolated in a
 framework-free state machine. The Three.js scene consumes only small scene
@@ -20,6 +27,10 @@ Verified in this environment:
 - both experiments end-to-end through the real release/pour/reaction path;
 - a real-app synthetic-hand regression covering asymmetric pinch, 3D carry,
   depth, release, tracking loss, and restart;
+- UI state sync with the live interaction: hover, hold, target-ready,
+  invalid release, completion, restart, and choose-another;
+- camera preview toggle, real camera view presets, and responsive layouts at
+  1366×768 and 1920×1080;
 - camera denial, missing camera, model failure, and retry paths;
 - Electron development launch and an unpacked Linux package;
 - local-only asset loading with no external requests.
@@ -114,12 +125,12 @@ pour (and final reaction) animation resolves.
 | --- | --- |
 | `src/lab/experiments.ts` | Experiment definitions, messages, effects, state machine |
 | `src/lab/models.ts` | Reagent/glassware wrappers, beaker/flask geometry, liquid, precipitate, bubbles, labels |
-| `src/lab/scene.ts` | Lab room, instrument placement, picking, highlights, pour/reaction animations, target validation |
-| `src/main.ts` | Camera lifecycle, gesture→engine→scene orchestration, UI rendering, dev bridge |
+| `src/lab/scene.ts` | Lab room, instrument placement, picking, highlights, animated camera presets, pour/reaction animations, target validation |
+| `src/main.ts` | Camera lifecycle, gesture→engine→scene orchestration, UI sync, settings/preview, dev bridge |
 | `src/interaction.ts` | Scene interface, stable knuckle aiming anchor, world-space grab/carry/release, release reasons, diagnostics |
 | `src/handTracking.ts` | Camera enumeration and switching; local model/WASM loading unchanged |
-| `src/style.css` | Three-column lab layout, responsive panels, completion banner |
-| `index.html` | Webcam panel, 3D scene, experiment selection/guide, status UI, interaction diagnostics |
+| `src/style.css` | Light Figma-derived design system, lab shell layout, panels, settings, camera preview, responsive rules |
+| `index.html` | Top bar, 3D viewport, experiment guide, live telemetry, status/gesture strip, completion banner, settings, diagnostics |
 | `electron/main.cjs` | Sandboxed window, local server, media permission policy, navigation guards |
 | `electron/static-server.cjs` | Read-only loopback static server with MIME/traversal handling |
 | `tests/experiment-check.test.ts` | State machine, asymmetric-pinch gesture bridge tests |
@@ -200,6 +211,33 @@ non-progressing feedback states.
 - Completion banner was moved below the vessels so the reaction remains
   visible.
 
+### Application shell (Figma integration)
+
+The Figma mock was used as a visual specification, not as a runtime layer:
+
+- **Layout:** 64 px top bar, full-bleed scene viewport, 320 px guide at the
+  left, telemetry at the bottom right, status and gesture strips along the
+  bottom, and a completion banner at the top centre. At 1366×768 the shell
+  switches to 58 px/288 px/262 px dimensions. The viewport remains dominant.
+- **Design tokens:** ink/muted/teal/green/amber/red surfaces, soft shadows,
+  blurred glass panels, and a system font stack. The mock's remote Google Fonts
+  import was not copied, so the app stays offline.
+- **Removed from the mock:** the React `Lab3DScene`, mouse-driven experiment
+  state, static pH/temperature/titrant readouts, screenshot view buttons, and
+  the gesture simulator. Each was replaced by the real scene, engine, tracking
+  snapshot, camera presets, and diagnostics.
+- **Repurposed panels:** the mock's telemetry card now reports camera state,
+  hand detection, and relative depth; the settings popover contains the real
+  camera device picker, camera restart, tracking diagnostics, and an optional
+  webcam preview that is hidden by default.
+- **State ownership:** `main.ts` renders from `ExperimentSnapshot` and
+  `InteractionSnapshot`; it never invents progress, camera state, or a selected
+  object. Guide text, held status, target readiness, depth, progress, step rows,
+  completion, and restart all derive from those snapshots.
+- **Camera presets:** `ChemistryScene.setViewPreset()` animates the real camera
+  between four fixed poses; raycast picking uses the live camera each frame, so
+  grabbing continues to work after a view change.
+
 ## 7. Resilience and error handling
 
 | Condition | Behavior |
@@ -275,6 +313,21 @@ End-to-end browser results:
 - camera denial, no camera, model 404, model retry, and camera retry all behave
   as designed.
 
+UI shell results:
+
+- initial camera/telemetry labels came from the real tracker, not placeholders;
+- hover showed `Pinch to grab`; grab showed `Holding BaCl₂ (aq)` and depth
+  `+0.00` / `Palm 1.00×`; over-target showed `Release to pour` and target tone
+  `ready`;
+- release in empty space kept step index 0, showed error feedback, and returned
+  the bottle to its home position;
+- completion showed `2 / 2`, 100%, success icon, both rows done, and the result
+  banner; restart cleared them; choose-another restored selection;
+- camera preview toggled a real 640×480 stream on and off;
+- view presets returned `top`, `side`, and `perspective` from the real camera;
+- 1366×768 and 1920×1080 layouts had no panel overflow or overlap;
+- production preview had no dev hook, no external requests, and no page errors.
+
 Real-app synthetic-hand interaction results:
 
 - open hand over BaCl₂ hovered it with no selection; an asymmetric thumb-only
@@ -292,8 +345,11 @@ Electron results:
 
 - development and packaged apps load the local origin;
 - model/WASM load locally;
-- both experiment cards and limestone scene render;
-- no external requests or page errors.
+- the new top bar, guide, and 3D viewport render in both;
+- starting an experiment loads its instruments and step 1;
+- the settings preview shows the real camera stream in the development app;
+- no external requests or page errors;
+- the packaged build was rebuilt after the UI rewrite and has no dev hook.
 
 The full matrix and observed values are in [VERIFICATION.md](VERIFICATION.md).
 
@@ -317,9 +373,14 @@ The full matrix and observed values are in [VERIFICATION.md](VERIFICATION.md).
    experiments add more vessels, add simple XZ separation or snap zones.
 6. **Long-running robustness.** Exercise camera unplug/replug, laptop sleep,
    repeated restarts, and multi-hour sessions.
-7. **Bundle size.** The single JS chunk is about 873 kB (224 kB gzip) and the
+7. **Bundle size.** The single JS chunk is about 880 kB (226 kB gzip) and the
    local assets add about 34 MB. Code-splitting the MediaPipe/Three.js entry
    could improve first load if needed.
+8. **Real-hand UI polish.** Depth telemetry, target readiness, and guide text
+   were exercised with synthetic landmarks only. Once a physical camera is
+   available, check that the `Show your hand` / `Aim` / `Carry` / `Release`
+   transitions do not flicker with real landmark jitter, and tune the gesture
+   thresholds and depth scaling if they do.
 
 ## 12. Run instructions
 

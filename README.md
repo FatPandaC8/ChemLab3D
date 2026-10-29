@@ -6,7 +6,10 @@ releasing it over the highlighted vessel performs a validated experiment step.
 
 The hand-tracking layer is the original MediaPipe + One Euro + pinch-hysteresis
 pipeline. The chemistry layer is new and reuses the reagent bottles, glassware,
-and limestone model from the vendored `chemlab-3d` sources.
+and limestone model from the vendored `chemlab-3d` sources. The application shell
+is a vanilla TypeScript port of the supplied Figma design: a light lab workspace
+with a compact top bar, a dominant 3D viewport, a left-hand experiment guide, and
+real camera/tracking telemetry.
 
 ![stack](https://img.shields.io/badge/MediaPipe-HandLandmarker-00a67e)
 ![stack](https://img.shields.io/badge/Three.js-0.186-000000)
@@ -30,6 +33,16 @@ and limestone model from the vendored `chemlab-3d` sources.
   chips, and CO₂ bubbles.
 - Selection screen, current-step guidance, progress bar, completion result,
   restart, and return to experiment selection.
+- Single-screen lab shell with a top bar (brand, experiment name, real 3D view
+  presets, progress, restart, settings), a compact instruction panel, a live
+  tracking panel, and a status/gesture strip around the dominant viewport.
+- Real camera view presets: **Perspective**, **Top Down**, **Side**, and
+  **Vessel Focus** move the actual Three.js camera with a short tween; they do
+  not swap screenshots.
+- Live telemetry for camera state, hand detection, and relative depth, driven by
+  the same frame that drives the interaction.
+- Camera preview is hidden by default. The settings popover can show the real
+  mirrored webcam and landmark overlay for diagnostics.
 - Camera device picker for built-in and external USB webcams.
 - Explicit handling for camera denial, no camera, busy/unsupported camera,
   model-load failure with retry, tracking loss, stale camera frames, and page
@@ -58,7 +71,9 @@ npm run dev
 ```
 
 Open the URL Vite prints (normally <http://localhost:5173/>), allow camera
-access, and wait for `Camera ready · model ready`.
+access, and wait for the camera status to read `Camera ready` with the live
+tracking panel showing `Searching`. The MediaPipe model loads locally and can
+take tens of seconds on a slow machine before hand detection begins.
 
 | Command | What it does |
 | --- | --- |
@@ -112,22 +127,27 @@ Before distributing a Windows build:
 
 1. Hold **one hand** roughly 40–80 cm from the camera with the thumb and index
    fingertip visible.
-2. Choose **White precipitate** or **Limestone fizz** in the right panel.
+2. Choose **White precipitate** or **Limestone fizz** in the experiment card
+   list in the left-hand guide.
 3. Move the cyan ring over a reagent bottle. Hovering highlights it amber.
 4. **Pinch** thumb and index together and hold briefly. The ring turns green
    and the bottle is carried.
-5. Carry the bottle over the highlighted vessel. The target turns green and the
-   scene says `Release now`.
+5. Carry the bottle over the highlighted vessel. The target turns green, the
+   guide says `Release to pour`, and the target panel asks you to release.
 6. **Release the pinch** over the target. A valid release plays the pour; an
-   invalid release returns the bottle and shows corrective feedback.
+   invalid release returns the bottle and shows corrective feedback without
+   advancing the step.
 7. After the final validated step, the reaction animation plays, the result
-   banner appears, and the experiment is marked complete.
-8. Use **Restart** to reset the same experiment or **Choose another** to return
-   to selection.
+   banner appears, the step icon becomes a check, and progress reads 2 / 2.
+8. Use **Restart** in the top bar or guide to reset the same experiment, or
+   **Choose another** to return to selection.
 
-While a held object is being carried, the right side of the scene shows whether
-the release point is over a valid target. Tracking loss during a hold returns
-the instrument to the bench and never advances an experiment.
+While a held object is being carried, the guide shows whether the release point
+is over a valid target, and the telemetry panel reports the relative depth. The
+**3D View** buttons in the top bar move the real camera. **Settings** opens the
+camera device picker, restart control, live diagnostics, and the camera preview
+toggle (off by default). Tracking loss during a hold returns the instrument to
+the bench and never advances an experiment.
 
 ### Hand-to-world mapping
 
@@ -172,8 +192,8 @@ check before the engine is asked to accept the transfer.
 ## Architecture
 
 ```text
-index.html                     lab layout, webcam panel, experiment guide
-src/main.ts                    boot, camera lifecycle, rAF loop, UI, orchestration
+index.html                     lab shell: top bar, 3D viewport, guide, telemetry, settings, diagnostics
+src/main.ts                    boot, camera lifecycle, rAF loop, UI sync, orchestration
 src/handTracking.ts            getUserMedia, camera switching, MediaPipe, smoothing
 src/gesture.ts                 pinch thresholds, confirmation, hysteresis, re-arm
 src/interaction.ts             hand→world mapping, grab/carry/release, loss recovery
@@ -181,8 +201,8 @@ src/scene.ts                   shared scene interfaces + original demo scene
 src/filter.ts                  One Euro filter
 src/lab/experiments.ts         experiment definitions and deterministic state machine
 src/lab/models.ts              reagent/glassware wrappers, liquids, bubbles, precipitate
-src/lab/scene.ts               lab room, instruments, picking, highlights, animations
-src/style.css                  responsive dark lab UI
+src/lab/scene.ts               lab room, instruments, picking, highlights, camera presets, animations
+src/style.css                  light Figma-derived design system and responsive lab layout
 electron/main.cjs              sandboxed desktop window and permission policy
 electron/static-server.cjs     read-only loopback server for dist/
 tests/logic-check.test.ts      gesture, filter, and interaction checks
@@ -256,6 +276,21 @@ All three pass. Browser verification covered:
   dropped safely on tracking loss, and re-armed after restart;
 - a release in empty space followed by moving the hand: the instrument settled
   back at rest instead of continuing to follow the free hand;
+- rejected release in empty space kept the step index at 0, showed error
+  feedback, and returned the bottle to its bench position;
+- guide and telemetry synced from the live interaction: hover, `Holding`,
+  `Release to pour`, depth ΔZ and palm ratio, and target-ready styling;
+- completion state showed progress 2 / 2, 100%, `All steps verified`, a success
+  step icon, both step rows done, and the result banner;
+- restart reset progress and the banner; choose-another restored the selection
+  screen and disabled restart;
+- the settings popover opened, the camera preview toggle displayed the real fake
+  camera stream (640×480, `videoWidth` > 0), and it hid again;
+- **Perspective**, **Top Down**, **Side**, and **Vessel Focus** returned the
+  matching real camera preset and updated `aria-pressed`;
+- layouts at 1920×1080 and 1366×768 had no panel overflow or overlap;
+- production preview (`vite preview`) made no external requests, loaded only the
+  app origin and local MediaPipe assets, and had no `window.__chemlabDev` hook;
 - visual screenshots after each step and after completion for both experiments;
 - production Electron launch, packaged Electron launch, and zero external
   requests.
@@ -267,7 +302,7 @@ Windows packaging, and Windows camera permissions were **not** performed. See
 [VERIFICATION.md](VERIFICATION.md) for the detailed matrix and
 [ENGINEERING_REPORT.md](ENGINEERING_REPORT.md) for the implementation report.
 
-The production JavaScript chunk is about 873 kB (224 kB gzip). Vite warns that
+The production JavaScript chunk is about 880 kB (226 kB gzip). Vite warns that
 it exceeds 500 kB; this is expected for a Three.js + MediaPipe bundle. The
 local model and WASM assets add roughly 34 MB.
 
@@ -298,7 +333,8 @@ local model and WASM assets add roughly 34 MB.
 ## Development-only verification hook
 
 In `npm run dev`, `window.__chemlabDev` exposes experiment start/restart/select,
-snapshot reading, instrument listing/positions, the interaction snapshot, and
+snapshot reading, instrument listing/positions, the interaction snapshot,
+camera view presets (`setViewPreset()` / `viewPreset()`), and
 `runCurrentStep()`. It also accepts `setSyntheticHand(landmarks | null)`, which
 replaces the tracker output only in the dev build so browser tests can drive the
 real scene and interaction loop without a physical hand. `runCurrentStep()` calls

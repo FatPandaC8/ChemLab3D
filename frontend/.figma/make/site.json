@@ -1,0 +1,10 @@
+{
+  "description": "Explore guided 3D chemistry experiments using webcam hand gestures, with clear instructions and real-time feedback for an immersive, hands-on learning experience.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -32,24 +32,7 @@ const TARGET_READY = 0x7fe7ff;
 const TARGET_NEAR = 0x6fe3a5;
 const TARGET_REJECT = 0xff7b7b;
 
-export type SceneViewPreset =
-  | "perspective"
-  | "top"
-  | "side"
-  | "closeup";
-
-interface CameraPose {
-  readonly position: readonly [number, number, number];
-  readonly target: readonly [number, number, number];
-}
-
-/** Real camera poses for the view buttons in the top bar. */
-const VIEW_POSES: Readonly<Record<SceneViewPreset, CameraPose>> = {
-  perspective: { position: [0, 4.6, 8.8], target: [0, 1.0, -0.2] },
-  top: { position: [0, 10.5, 0.01], target: [0, 0, 0] },
-  side: { position: [8.4, 3.3, 0.01], target: [0, 1.05, 0] },
-  closeup: { position: [0, 2.9, 5.5], target: [0, 1.05, 0] },
-};
+import { CameraController } from "../cameraController";
 
 export interface SceneInstrumentInfo {
   readonly id: string;
@@ -129,17 +112,13 @@ export class ChemistryScene implements InteractionScene {
   private cursorTone: "idle" | "hover" | "held" = "idle";
   private time = 0;
   private rejectFlashUntil = 0;
-  private viewPreset: SceneViewPreset = "perspective";
-  private readonly cameraTarget = new THREE.Vector3(0, 1.0, -0.2);
-  private readonly cameraTween = {
-    active: false,
-    elapsed: 0,
-    duration: 0.55,
-    fromPosition: new THREE.Vector3(),
-    toPosition: new THREE.Vector3(),
-    fromTarget: new THREE.Vector3(),
-    toTarget: new THREE.Vector3(),
-  };
+  private cameraController: CameraController;
+  private readonly heldPrevPos = new THREE.Vector3();
+  private heldTiltZ = 0;
+  private heldTiltX = 0;
+  private heldSpringY = 0;
+  private heldSpringVelY = 0;
+  private heldPourTilt = 0;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -161,7 +140,12 @@ export class ChemistryScene implements InteractionScene {
 
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 80);
     this.camera.position.set(0, 4.6, 8.8);
-    this.camera.lookAt(this.cameraTarget);
+    this.camera.lookAt(new THREE.Vector3(0, 1.0, -0.2));
+
+    this.cameraController = new CameraController(
+      this.camera,
+      this.renderer.domElement,
+    );
 
     this.buildRoom();
     this.addLights();
@@ -209,14 +193,30 @@ export class ChemistryScene implements InteractionScene {
   // InteractionScene
   // ---------------------------------------------------------------------
 
-  setCursor(x: number, z: number, y = 0): void {
+  setCursor(
+    x: number,
+    z: number,
+    y = 0,
+    screenX?: number,
+    screenY?: number,
+  ): void {
     const renderY = Math.max(y, 0.02);
     this.cursorPosition.set(x, renderY, z);
     this.cursorGroup.position.set(x, renderY, z);
     this.cursorGroup.visible = true;
     this.cursorVisible = true;
-    this.projectedCursor.copy(this.cursorPosition).project(this.camera);
-    this.pickNdc.set(this.projectedCursor.x, this.projectedCursor.y);
+
+    if (screenX !== undefined && screenY !== undefined) {
+      // MediaPipe x is 0..1 (video space), mirrored so 1 - screenX maps to display left-to-right
+      const mirroredX = 1 - screenX;
+      // Convert to Normalized Device Coordinates (NDC) [-1, 1]
+      const ndcX = mirroredX * 2 - 1;
+      const ndcY = -(screenY * 2 - 1);
+      this.pickNdc.set(ndcX, ndcY);
+    } else {
+      this.projectedCursor.copy(this.cursorPosition).project(this.camera);
+      this.pickNdc.set(this.projectedCursor.x, this.projectedCursor.y);
+    }
   }
 
   setCursorVisible(visible: boolean): void {
@@ -267,6 +267,10 @@ export class ChemistryScene implements InteractionScene {
     }
     if (this.held) {
       this.applyHighlight(this.held, this.held === this.hovered ? "hover" : "none");
+      const prevRecord = this.recordForObject(this.held);
+      if (prevRecord?.root.children[0]) {
+        prevRecord.root.children[0].position.y = 0;
+      }
     }
     this.held = object;
     if (object) {
@@ -342,26 +346,16 @@ export class ChemistryScene implements InteractionScene {
     this.disposalRoots.push(sign);
   }
 
-  /**
-   * Move the real camera to a preset viewpoint. The tween keeps object picking
-   * correct because the raycast uses the live camera each frame.
-   */
-  setViewPreset(preset: SceneViewPreset): void {
-    if (preset === this.viewPreset) {
-      return;
-    }
-    const pose = VIEW_POSES[preset];
-    this.viewPreset = preset;
-    this.cameraTween.fromPosition.copy(this.camera.position);
-    this.cameraTween.toPosition.set(...pose.position);
-    this.cameraTween.fromTarget.copy(this.cameraTarget);
-    this.cameraTween.toTarget.set(...pose.target);
-    this.cameraTween.elapsed = 0;
-    this.cameraTween.active = true;
+  public get liveCamera(): THREE.PerspectiveCamera {
+    return this.camera;
   }
 
-  getViewPreset(): SceneViewPreset {
-    return this.viewPreset;
+  setCameraControlEnabled(enabled: boolean): void {
+    this.cameraController.setEnabled(enabled);
+  }
+
+  resetCamera(): void {
+    this.cameraController.resetCamera();
   }
 
   getInstrumentInfo(): SceneInstrumentInfo[] {
@@ -531,7 +525,9 @@ export class ChemistryScene implements InteractionScene {
 
   update(dt: number): void {
     this.time += dt;
-    this.updateCamera(dt);
+    this.cameraController.update(dt);
+    this.updateHeldTiltPhysics(dt);
+    this.counterRotateBottleLiquid();
     this.updateRestTweens(dt);
     this.updatePours(dt);
     this.updateReactions(dt);
@@ -555,6 +551,7 @@ export class ChemistryScene implements InteractionScene {
         disposeMaterial(renderable.material);
       }
     });
+    this.cameraController.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
@@ -771,25 +768,94 @@ export class ChemistryScene implements InteractionScene {
     }
   }
 
-  private updateCamera(dt: number): void {
-    const tween = this.cameraTween;
-    if (!tween.active) {
+  private updateHeldTiltPhysics(dt: number): void {
+    if (!this.held) {
+      this.heldPrevPos.set(0, 0, 0);
+      this.heldTiltZ = 0;
+      this.heldTiltX = 0;
+      this.heldSpringY = 0;
+      this.heldSpringVelY = 0;
+      this.heldPourTilt = 0;
       return;
     }
-    tween.elapsed += dt;
-    const t = Math.min(1, tween.elapsed / tween.duration);
-    const eased =
-      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-    this.camera.position.lerpVectors(
-      tween.fromPosition,
-      tween.toPosition,
-      eased,
-    );
-    this.cameraTarget.lerpVectors(tween.fromTarget, tween.toTarget, eased);
-    this.camera.lookAt(this.cameraTarget);
-    this.camera.updateMatrixWorld();
-    if (t >= 1) {
-      tween.active = false;
+
+    const record = this.recordForObject(this.held);
+    if (!record) {
+      return;
+    }
+
+    const currentPos = record.root.position;
+
+    // Initialize previous position if first frame
+    if (this.heldPrevPos.lengthSq() === 0) {
+      this.heldPrevPos.copy(currentPos);
+    }
+
+    // Velocity estimation
+    const vx = (currentPos.x - this.heldPrevPos.x) / Math.max(0.001, dt);
+    const vz = (currentPos.z - this.heldPrevPos.z) / Math.max(0.001, dt);
+    this.heldPrevPos.copy(currentPos);
+
+    // Carry tilt based on horizontal velocity (max ~15° = ~0.26 rad)
+    const maxTilt = 0.26;
+    const targetTiltZ = Math.max(-maxTilt, Math.min(maxTilt, -vx * 0.12));
+    const targetTiltX = Math.max(-maxTilt, Math.min(maxTilt, vz * 0.12));
+    this.heldTiltZ += (targetTiltZ - this.heldTiltZ) * Math.min(1, dt * 10);
+    this.heldTiltX += (targetTiltX - this.heldTiltX) * Math.min(1, dt * 10);
+
+    // Subtle spring wobble while suspended
+    const speed = Math.hypot(vx, vz);
+    const springK = 25;
+    const springDamp = 4;
+    const force = -springK * this.heldSpringY - springDamp * this.heldSpringVelY;
+    this.heldSpringVelY += (force + Math.sin(this.time * 9) * speed * 0.05) * dt;
+    this.heldSpringY += this.heldSpringVelY * dt;
+    this.heldSpringY = Math.max(-0.03, Math.min(0.03, this.heldSpringY));
+
+    // Check distance to target vessel (beaker / flask)
+    let pourAngle = 0;
+    const targetRecord = this.activeTarget();
+    if (targetRecord) {
+      const dx = currentPos.x - targetRecord.root.position.x;
+      const dz = currentPos.z - targetRecord.root.position.z;
+      const dist = Math.hypot(dx, dz);
+      const triggerDist = 1.45;
+      if (dist < triggerDist) {
+        // Tilt towards beaker (60°–75° = ~1.05–1.3 rad)
+        const factor = 1 - dist / triggerDist;
+        pourAngle = -1.15 * factor;
+      }
+    }
+
+    // Blend pour tilt smoothly
+    this.heldPourTilt += (pourAngle - this.heldPourTilt) * Math.min(1, dt * 8);
+
+    // Apply combined rotations
+    record.root.rotation.z = this.heldPourTilt < -0.05 ? this.heldPourTilt : this.heldTiltZ;
+    record.root.rotation.x = this.heldPourTilt < -0.05 ? 0 : this.heldTiltX;
+
+    // Apply subtle spring wobble to inner wrapper child mesh without overriding root position
+    const innerWrapper = record.root.children[0];
+    if (innerWrapper) {
+      innerWrapper.position.y = this.heldSpringY;
+    }
+  }
+
+  private counterRotateBottleLiquid(): void {
+    for (const record of this.instruments) {
+      if (record.object.grabbable === false) {
+        continue;
+      }
+      // Reagent bottle root rotation
+      const rootRotZ = record.root.rotation.z;
+      const rootRotX = record.root.rotation.x;
+
+      record.root.traverse((node) => {
+        if (node.name === "stock-liquid") {
+          node.rotation.z = -rootRotZ;
+          node.rotation.x = -rootRotX;
+        }
+      });
     }
   }
 

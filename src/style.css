@@ -209,53 +209,12 @@ summary:focus-visible {
   max-width: 280px;
 }
 
-.view-presets {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  padding: 3px 4px;
-  border-radius: 10px;
-  border: 1px solid rgba(24, 76, 79, 0.1);
-  background: rgba(230, 239, 238, 0.7);
-}
-
-.view-label {
-  padding: 0 6px 0 8px;
-  color: #657e81;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-}
-
-.view-pill {
-  height: 28px;
-  padding: 0 10px;
-  border-radius: 7px;
-  background: transparent;
-  color: #4b6265;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.view-pill:hover {
-  color: var(--teal);
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.view-pill.active {
-  background: white;
-  color: var(--teal-dark);
-  font-weight: 700;
-  box-shadow: 0 2px 6px rgba(18, 48, 51, 0.08);
-}
-
 .top-progress {
   display: flex;
   align-items: center;
   gap: 14px;
-  flex: none;
+  flex: 1;
+  justify-content: center;
 }
 
 .progress-copy {

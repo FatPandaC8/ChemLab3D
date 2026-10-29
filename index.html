@@ -24,42 +24,6 @@
           </div>
         </div>
 
-        <div class="view-presets" aria-label="3D view angles">
-          <span class="view-label">3D View</span>
-          <button
-            class="view-pill active"
-            type="button"
-            data-view="perspective"
-            aria-pressed="true"
-          >
-            Perspective
-          </button>
-          <button
-            class="view-pill"
-            type="button"
-            data-view="top"
-            aria-pressed="false"
-          >
-            Top Down
-          </button>
-          <button
-            class="view-pill"
-            type="button"
-            data-view="side"
-            aria-pressed="false"
-          >
-            Side
-          </button>
-          <button
-            class="view-pill"
-            type="button"
-            data-view="closeup"
-            aria-pressed="false"
-          >
-            Vessel Focus
-          </button>
-        </div>
-
         <div id="top-progress" class="top-progress" aria-live="polite" hidden>
           <div class="progress-copy">
             <span>Experiment progress</span>
@@ -72,6 +36,29 @@
         </div>
 
         <div class="top-actions">
+          <button
+            id="reset-camera"
+            class="icon-button"
+            type="button"
+            aria-label="Reset camera to default view"
+            title="Reset camera"
+          >
+            <svg
+              aria-hidden="true"
+              class="icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.8"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" />
+            </svg>
+          </button>
           <button
             id="restart-experiment"
             class="restart-button"

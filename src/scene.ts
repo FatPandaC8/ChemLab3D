@@ -26,7 +26,13 @@ export interface SceneObject {
 
 /** The slice of the 3D view that the hand interaction controller needs. */
 export interface InteractionScene {
-  setCursor(x: number, z: number, y?: number): void;
+  setCursor(
+    x: number,
+    z: number,
+    y?: number,
+    screenX?: number,
+    screenY?: number,
+  ): void;
   setCursorVisible(visible: boolean): void;
   pickAtCursor(): SceneObject | null;
   setHovered(object: SceneObject | null): void;

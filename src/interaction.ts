@@ -10,6 +10,7 @@ import {
   type SceneObject,
 } from "./scene";
 import type { Point2, Point3 } from "./types";
+import { LAB_CONFIG } from "./config";
 
 /** Grace period before tracking loss drops an object and resets the gesture. */
 const TRACKING_LOSS_GRACE_MS = 300;
@@ -106,6 +107,12 @@ export interface InteractionSnapshot {
   cursorVisible: boolean;
 }
 
+/** Smooth easing for lift animation — ease-out cubic. */
+function easeOutCubic(t: number): number {
+  const c = Math.min(1, Math.max(0, t));
+  return 1 - Math.pow(1 - c, 3);
+}
+
 /**
  * Owns the interaction state: cursor mapping, grabbing, moving, dropping, and
  * recovery from temporary tracking loss. The gesture recognizer only reports
@@ -118,6 +125,11 @@ export interface InteractionSnapshot {
  *
  * The object is moved by the change in the mapped hand position, not snapped
  * to it: the offset recorded at grab time is preserved on all three axes.
+ *
+ * When `dt` is passed to `update()`, physics-based movement is activated:
+ * exponential damping, lift animation, and subtle scale inflate.
+ * When `dt` is omitted, the original direct-assignment behavior is used
+ * (required for the unit-test harness which checks exact positions).
  */
 export class InteractionController {
   private readonly gesture = new PinchGestureRecognizer();
@@ -150,6 +162,17 @@ export class InteractionController {
   private grabPalmSpan = 0;
   private cursorVisible = false;
 
+  // -----------------------------------------------------------------------
+  // Physics state — only used when dt is passed to update()
+  // -----------------------------------------------------------------------
+  /** Current damped world position of the held object. */
+  private readonly physicsPos = new THREE.Vector3();
+  /** True while the lift-on-grab animation is running. */
+  private liftActive = false;
+  private liftElapsed = 0;
+  private liftFromY = 0;
+  private liftToY = 0;
+
   constructor(
     private readonly scene: InteractionScene,
     private readonly events: InteractionEvents = {},
@@ -171,6 +194,9 @@ export class InteractionController {
     this.snapshot.palmRatio = null;
     this.scene.setHovered(null);
     this.scene.setCursorVisible(false);
+    // Physics
+    this.liftActive = false;
+    this.liftElapsed = 0;
   }
 
   /** Current interaction state, used by the diagnostics HUD and dev bridge. */
@@ -178,7 +204,20 @@ export class InteractionController {
     return this.snapshot;
   }
 
-  update(hand: TrackedHand | null, nowMs: number): Readonly<InteractionSnapshot> {
+  /**
+   * Main per-frame update.
+   *
+   * @param hand Tracked hand result (null when no hand visible).
+   * @param nowMs Monotonic timestamp in milliseconds.
+   * @param dt Optional deltaTime in seconds. When provided, enables the
+   *   physics-based damped movement path (exponential lerp, lift, scale).
+   *   When omitted, direct position assignment is used (test-compatible).
+   */
+  update(
+    hand: TrackedHand | null,
+    nowMs: number,
+    dt?: number,
+  ): Readonly<InteractionSnapshot> {
     if (!hand) {
       return this.updateWithoutHand(nowMs);
     }
@@ -197,7 +236,7 @@ export class InteractionController {
     this.mapHand(hand, anchor);
     // Aiming uses the screen-space cursor; depth is relative to the grab.
     this.handWorld.z = 0;
-    this.moveCursor();
+    this.moveCursor(anchor);
 
     const gesture = this.gesture.update(hand.landmarks, nowMs);
     this.pinchRatio = gesture.pinchRatio;
@@ -210,7 +249,11 @@ export class InteractionController {
     // the confirmation frame matches what the cursor is over on that frame.
     if (this.held) {
       this.handWorld.z = this.depthOffset();
-      this.moveHeldObject();
+      if (dt !== undefined && dt > 0) {
+        this.moveHeldObjectPhysics(dt);
+      } else {
+        this.moveHeldObject();
+      }
       this.hovered = null;
       this.scene.setHovered(null);
     } else {
@@ -262,9 +305,15 @@ export class InteractionController {
     this.cursorVisible = true;
   }
 
-  private moveCursor(): void {
+  private moveCursor(anchor?: Point2): void {
     const y = clamp(this.handWorld.y, CURSOR_FLOOR_Y, MAX_OBJECT_Y);
-    this.scene.setCursor(this.handWorld.x, 0, y);
+    this.scene.setCursor(
+      this.handWorld.x,
+      0,
+      y,
+      anchor ? anchor.x : undefined,
+      anchor ? anchor.y : undefined,
+    );
   }
 
   /**
@@ -303,7 +352,21 @@ export class InteractionController {
     this.grabOffset.copy(this.heldWorld).sub(this.handWorld);
     this.scene.setHeld(target);
     this.events.onGrab?.(target);
+
+    // Initialize physics state for the dt-based movement path.
+    this.physicsPos.copy(this.heldWorld);
+    this.liftActive = true;
+    this.liftElapsed = 0;
+    this.liftFromY = this.heldWorld.y;
+    this.liftToY = Math.min(
+      this.heldWorld.y + LAB_CONFIG.grab.liftHeight,
+      MAX_OBJECT_Y,
+    );
   }
+
+  // -----------------------------------------------------------------------
+  // Direct movement (original behavior, required for tests)
+  // -----------------------------------------------------------------------
 
   private moveHeldObject(): void {
     if (!this.held) {
@@ -325,6 +388,86 @@ export class InteractionController {
       parent.worldToLocal(desiredWorld);
     }
     this.held.mesh.position.copy(desiredWorld);
+  }
+
+  // -----------------------------------------------------------------------
+  // Physics-based movement (used when dt > 0 is passed to update())
+  // -----------------------------------------------------------------------
+
+  /**
+   * Exponential-damped movement with lift-on-grab animation and subtle scale.
+   *
+   * Position: pos.lerp(target, 1 - exp(-k·dt)), k from LAB_CONFIG.
+   * Lift: easeOutCubic ramp from grab position upward during the first 150 ms.
+   * Scale: smoothly inflates to LAB_CONFIG.grab.scaleOnGrab while held.
+   *
+   * Rotation is NOT set here — that is the responsibility of the scene layer
+   * (ChemistryScene.updateHeldTilt) which has access to target proximity info.
+   */
+  private moveHeldObjectPhysics(dt: number): void {
+    if (!this.held) {
+      return;
+    }
+
+    // Compute the "desired" world position exactly as the direct path does.
+    const desiredWorld = new THREE.Vector3()
+      .copy(this.handWorld)
+      .add(this.grabOffset);
+    desiredWorld.x = clamp(desiredWorld.x, INTERACTION_BOUNDS.minX, INTERACTION_BOUNDS.maxX);
+    desiredWorld.y = clamp(desiredWorld.y, this.held.restY, MAX_OBJECT_Y);
+    desiredWorld.z = clamp(desiredWorld.z, INTERACTION_BOUNDS.minZ, INTERACTION_BOUNDS.maxZ);
+
+    const k = LAB_CONFIG.grab.positionLerpK;
+    const alpha = 1 - Math.exp(-k * dt);
+
+    if (this.liftActive) {
+      // Lift phase: ease Y upward while XZ smoothly tracks the hand.
+      this.liftElapsed += dt;
+      const t = easeOutCubic(
+        Math.min(1, this.liftElapsed / LAB_CONFIG.grab.liftDuration),
+      );
+      // Update the lift target in case the hand moved during the lift.
+      this.liftToY = Math.min(
+        desiredWorld.y + LAB_CONFIG.grab.liftHeight,
+        MAX_OBJECT_Y,
+      );
+      const liftY = this.liftFromY + (this.liftToY - this.liftFromY) * t;
+
+      this.physicsPos.x += (desiredWorld.x - this.physicsPos.x) * alpha;
+      this.physicsPos.y = liftY;
+      this.physicsPos.z += (desiredWorld.z - this.physicsPos.z) * alpha;
+
+      if (this.liftElapsed >= LAB_CONFIG.grab.liftDuration) {
+        this.liftActive = false;
+      }
+    } else {
+      // Normal carry: smooth exponential damping on all axes.
+      this.physicsPos.lerp(desiredWorld, alpha);
+    }
+
+    // Hard clamp to keep the object inside the workspace.
+    this.physicsPos.x = clamp(this.physicsPos.x, INTERACTION_BOUNDS.minX, INTERACTION_BOUNDS.maxX);
+    this.physicsPos.y = clamp(this.physicsPos.y, this.held.restY, MAX_OBJECT_Y);
+    this.physicsPos.z = clamp(this.physicsPos.z, INTERACTION_BOUNDS.minZ, INTERACTION_BOUNDS.maxZ);
+
+    // Write position to the mesh (convert world → local through any parent).
+    const parent = this.held.mesh.parent;
+    const localPos = this.physicsPos.clone();
+    if (parent) {
+      parent.updateWorldMatrix(true, false);
+      parent.worldToLocal(localPos);
+    }
+    this.held.mesh.position.copy(localPos);
+
+    // Subtle scale inflate: grows to scaleOnGrab over the lift duration.
+    const liftProgress = this.liftActive
+      ? easeOutCubic(
+          Math.min(1, this.liftElapsed / LAB_CONFIG.grab.liftDuration),
+        )
+      : 1;
+    this.held.mesh.scale.setScalar(
+      1 + (LAB_CONFIG.grab.scaleOnGrab - 1) * liftProgress,
+    );
   }
 
   private dropHeldObject(
@@ -350,6 +493,12 @@ export class InteractionController {
     this.grabPalmSpan = 0;
     this.handWorld.z = 0;
     this.scene.setHeld(null);
+
+    // Reset physics-applied mesh overrides.
+    dropped.mesh.scale.setScalar(1);
+    this.liftActive = false;
+    this.liftElapsed = 0;
+
     this.events.onRelease?.(dropped, position, reason);
   }
 

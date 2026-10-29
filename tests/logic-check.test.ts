@@ -205,7 +205,13 @@ class FakeScene {
     return { name, mesh, material, restY: y };
   }
 
-  setCursor(x: number, z: number, y = 0): void {
+  setCursor(
+    x: number,
+    z: number,
+    y = 0,
+    _screenX?: number,
+    _screenY?: number,
+  ): void {
     this.cursor.set(x, y, z);
     this.visible = true;
   }
@@ -910,6 +916,69 @@ function checkParentedObject(): void {
   console.log("interaction: transformed parent uses world-space movement OK");
 }
 
+function checkTrackingLossReset(): void {
+  const scene = new FakeScene();
+  const controller = new InteractionController(scene as unknown as SceneView);
+  const object = scene.makeObject("Item", 0, 0.5, 0);
+  scene.target = object;
+
+  const atObject = rawHandForWorld(0, 0.5);
+  let now = 0;
+  controller.update(
+    {
+      landmarks: landmarks({ ...atObject, pinch: OPEN_PINCH }),
+      handedness: "Right",
+    },
+    now,
+  );
+
+  now = 10;
+  controller.update(
+    {
+      landmarks: landmarks({ ...atObject, pinch: CLOSED_PINCH }),
+      handedness: "Right",
+    },
+    now,
+  );
+
+  now = 120;
+  controller.update(
+    {
+      landmarks: landmarks({ ...atObject, pinch: CLOSED_PINCH }),
+      handedness: "Right",
+    },
+    now,
+  );
+  assert.equal(controller.getSnapshot().gesture, "Holding");
+  assert.equal(controller.getSnapshot().selectedName, "Item");
+
+  // Hand tracking begins dropping at 150ms
+  now = 150;
+  controller.update(null, now);
+  assert.equal(controller.getSnapshot().selectedName, "Item");
+
+  // Hand lost for > 300ms (150 + 310 = 460ms)
+  now = 460;
+  controller.update(null, now);
+  assert.equal(controller.getSnapshot().selectedName, null);
+  // Recognizer must be reset so returning with an open pinch is Idle
+  assert.equal(controller.getSnapshot().gesture, "Idle");
+
+  // Re-enter with open hand
+  now = 500;
+  const snap = controller.update(
+    {
+      landmarks: landmarks({ ...atObject, pinch: OPEN_PINCH }),
+      handedness: "Right",
+    },
+    now,
+  );
+  assert.equal(snap.gesture, "Idle");
+  assert.equal(snap.selectedName, null);
+
+  console.log("interaction: tracking loss disarms gesture cleanly OK");
+}
+
 checkThresholds();
 checkFilter();
 checkInteraction();
@@ -918,4 +987,5 @@ checkEmptyPinch();
 checkPalmAnchorMapping();
 checkAsymmetricPinch();
 checkParentedObject();
+checkTrackingLossReset();
 console.log("all logic checks passed");

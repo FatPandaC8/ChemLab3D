@@ -11,7 +11,7 @@ import {
   type ObjectPosition,
   type ReleaseReason,
 } from "./interaction";
-import { ChemistryScene, type SceneViewPreset } from "./lab/scene";
+import { ChemistryScene } from "./lab/scene";
 import {
   ExperimentEngine,
   getExperiment,
@@ -47,6 +47,7 @@ function boot(): void {
     progressStep: requireElement<HTMLElement>("#progress-step"),
     progressTotal: requireElement<HTMLElement>("#progress-total"),
     progressTrack: requireElement<HTMLDivElement>("#progress-track"),
+    resetCamera: requireElement<HTMLButtonElement>("#reset-camera"),
     restartExperiment: requireElement<HTMLButtonElement>("#restart-experiment"),
     restartExperiment2: requireElement<HTMLButtonElement>(
       "#restart-experiment-2",
@@ -104,9 +105,6 @@ function boot(): void {
     debugPinch: requireElement<HTMLElement>("#debug-pinch"),
     debugCursor: requireElement<HTMLElement>("#debug-cursor"),
     debugLastAction: requireElement<HTMLElement>("#debug-last-action"),
-    viewButtons: Array.from(
-      document.querySelectorAll<HTMLButtonElement>("[data-view]"),
-    ),
   };
 
   let sceneView: ChemistryScene;
@@ -246,6 +244,7 @@ function boot(): void {
 
   interaction = new InteractionController(sceneView, {
     onGrab: (object) => {
+      sceneView.setCameraControlEnabled(false);
       const grabbedAt = object.mesh.getWorldPosition(new THREE.Vector3());
       lastAction = `grabbed ${object.id ?? object.name} @ ${formatPosition({
         x: grabbedAt.x,
@@ -253,7 +252,10 @@ function boot(): void {
         z: grabbedAt.z,
       })}`;
     },
-    onRelease: handleRelease,
+    onRelease: (object, position, reason) => {
+      sceneView.setCameraControlEnabled(true);
+      return handleRelease(object, position, reason);
+    },
   });
 
   const startExperiment = (id: ExperimentId): void => {
@@ -323,20 +325,9 @@ function boot(): void {
     setPreviewEnabled(!previewEnabled);
   });
 
-  for (const button of elements.viewButtons) {
-    button.addEventListener("click", () => {
-      const preset = button.dataset.view as SceneViewPreset | undefined;
-      if (!preset) {
-        return;
-      }
-      sceneView.setViewPreset(preset);
-      for (const item of elements.viewButtons) {
-        const active = item === button;
-        item.classList.toggle("active", active);
-        item.setAttribute("aria-pressed", String(active));
-      }
-    });
-  }
+  elements.resetCamera.addEventListener("click", () => {
+    sceneView.resetCamera();
+  });
 
   const handleDocumentPointerDown = (event: PointerEvent): void => {
     if (!settingsOpen) {
@@ -376,8 +367,8 @@ function boot(): void {
         startExperiment: (id: ExperimentId) => void;
         restartExperiment: () => void;
         chooseExperiment: () => void;
-        setViewPreset: (preset: SceneViewPreset) => void;
-        viewPreset: () => SceneViewPreset;
+        resetCamera: () => void;
+        setCameraControlEnabled: (enabled: boolean) => void;
         snapshot: () => ExperimentSnapshot;
         instruments: () => ReturnType<ChemistryScene["getInstrumentInfo"]>;
         instrumentPosition: (
@@ -397,8 +388,9 @@ function boot(): void {
       startExperiment,
       restartExperiment,
       chooseExperiment,
-      setViewPreset: (preset) => sceneView.setViewPreset(preset),
-      viewPreset: () => sceneView.getViewPreset(),
+      resetCamera: () => sceneView.resetCamera(),
+      setCameraControlEnabled: (enabled) =>
+        sceneView.setCameraControlEnabled(enabled),
       snapshot: () => engine.getSnapshot(),
       instruments: () => sceneView.getInstrumentInfo(),
       instrumentPosition: (id) => sceneView.getInstrumentPosition(id),
@@ -720,15 +712,21 @@ function boot(): void {
           lastVideoTime = elements.video.currentTime;
           lastVideoFrameAt = now;
           const hand = syntheticHand ?? tracker.detect(now);
-          updateLiveState(hand, interaction.update(hand, now));
+          updateLiveState(hand, interaction.update(hand, now, dt));
         } else if (now - lastVideoFrameAt > 500) {
           // Camera paused or stopped delivering frames. Treat it as a
           // tracking loss so a held instrument can never stay stuck.
-          updateLiveState(null, interaction.update(null, now));
+          updateLiveState(null, interaction.update(null, now, dt));
         }
+
+        const snapshot = interaction.getSnapshot();
+        const isBusyInteracting =
+          snapshot.gesture === "Holding" || snapshot.gesture === "Pinching";
+        sceneView.setCameraControlEnabled(!isBusyInteracting);
       } catch (error) {
         trackingStopped = true;
         interaction.reset();
+        sceneView.setCameraControlEnabled(true);
         applyCameraStatus(
           elements,
           "Tracking error",
@@ -1120,7 +1118,7 @@ type AppElements = {
   debugPinch: HTMLElement;
   debugCursor: HTMLElement;
   debugLastAction: HTMLElement;
-  viewButtons: HTMLButtonElement[];
+  resetCamera: HTMLButtonElement;
 };
 
 function requireElement<T extends Element>(selector: string): T {
